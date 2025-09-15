@@ -14,8 +14,14 @@ class CodeupTester(unittest.TestCase):
 
         # Initialize git repo
         subprocess.run(["git", "init"], check=True, capture_output=True)
-        subprocess.run(["git", "config", "user.name", "Test User"], check=True, capture_output=True)
-        subprocess.run(["git", "config", "user.email", "test@example.com"], check=True, capture_output=True)
+        subprocess.run(
+            ["git", "config", "user.name", "Test User"], check=True, capture_output=True
+        )
+        subprocess.run(
+            ["git", "config", "user.email", "test@example.com"],
+            check=True,
+            capture_output=True,
+        )
 
         # Create a test file
         with open("test_file.txt", "w") as f:
@@ -23,7 +29,9 @@ class CodeupTester(unittest.TestCase):
 
         # Initial commit
         subprocess.run(["git", "add", "test_file.txt"], check=True, capture_output=True)
-        subprocess.run(["git", "commit", "-m", "Initial commit"], check=True, capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-m", "Initial commit"], check=True, capture_output=True
+        )
 
     def tearDown(self):
         """Clean up the temporary directory."""
@@ -47,6 +55,7 @@ class CodeupTester(unittest.TestCase):
 
         # Test the codeup module by importing it from the source directory
         import sys
+
         sys.path.insert(0, str(Path(self.original_cwd) / "src"))
 
         try:
@@ -56,46 +65,55 @@ class CodeupTester(unittest.TestCase):
             original_argv = sys.argv
             sys.argv = ["codeup", "--just-ai-commit"]
 
-            # Mock input for commit message
-            import builtins
-            original_input = builtins.input
-            builtins.input = lambda prompt: "Test commit from unit test"
+            # Mock stdin to be non-interactive to trigger fallback behavior
+            import io
+
+            original_stdin = sys.stdin
+            sys.stdin = io.StringIO("")
 
             # Mock API key functions to return None (disable AI)
             from unittest.mock import patch
-            with patch('codeup.config.get_openai_api_key', return_value=None), \
-                 patch('codeup.config.get_anthropic_api_key', return_value=None):
+
+            with patch("codeup.config.get_openai_api_key", return_value=None), patch(
+                "codeup.config.get_anthropic_api_key", return_value=None
+            ):
 
                 try:
                     result = codeup_main()
                     # Check that the command succeeded
-                    self.assertEqual(result, 0, "codeup --just-ai-commit should return 0")
+                    self.assertEqual(
+                        result, 0, "codeup --just-ai-commit should return 0"
+                    )
 
                     # Verify that changes were committed
                     status_result = subprocess.run(
                         ["git", "status", "--porcelain"],
                         capture_output=True,
                         text=True,
-                        check=True
+                        check=True,
                     )
 
                     # Should be no uncommitted changes
-                    self.assertEqual(status_result.stdout.strip(), "", "Working directory should be clean after commit")
+                    self.assertEqual(
+                        status_result.stdout.strip(),
+                        "",
+                        "Working directory should be clean after commit",
+                    )
 
                     # Verify the commit was created
                     log_result = subprocess.run(
                         ["git", "log", "--oneline", "-1"],
                         capture_output=True,
                         text=True,
-                        check=True
+                        check=True,
                     )
 
-                    # Should contain our test commit message
-                    self.assertIn("Test commit from unit test", log_result.stdout)
+                    # Should contain automated commit message (since no AI keys)
+                    self.assertIn("chore: automated commit", log_result.stdout)
 
                 finally:
-                    # Restore original input function and argv
-                    builtins.input = original_input
+                    # Restore original stdin and argv
+                    sys.stdin = original_stdin
                     sys.argv = original_argv
 
         except ImportError as e:

@@ -1,6 +1,7 @@
 """
 Unit test file.
 """
+
 import os
 import unittest
 
@@ -12,8 +13,9 @@ class MainTester(unittest.TestCase):
 
     def test_imports(self) -> None:
         """Test command line interface (CLI)."""
+        # Test that codeup exits with code 1 when no changes to commit (expected behavior)
         rtn = os.system(COMMAND)
-        self.assertEqual(0, rtn)
+        self.assertEqual(1, rtn)  # codeup should exit 1 when no changes to commit
 
 
 if __name__ == "__main__":

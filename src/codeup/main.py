@@ -526,7 +526,9 @@ Respond with only the commit message, nothing else."""
 
                 if response.choices and len(response.choices) > 0:
                     commit_message = response.choices[0].message.content.strip()
-                    logger.info(f"Successfully generated OpenAI commit message: {commit_message[:50]}...")
+                    logger.info(
+                        f"Successfully generated OpenAI commit message: {commit_message[:50]}..."
+                    )
                     return commit_message
                 else:
                     logger.warning("OpenAI API returned empty response")
