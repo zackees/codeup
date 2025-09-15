@@ -1,47 +1,94 @@
 [build-system]
-requires = ["setuptools>=65.5.1", "setuptools-scm", "wheel"]
+requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "codeup"
+version = "1.0.0"
+description = "Intelligent git workflow automation tool with AI-powered commit messages"
 readme = "README.md"
-description = "git commit ai auto generator and code pusher"
-requires-python = ">=3.10"
-keywords = ["template-python-cmd"]
-license = { text = "BSD 3-Clause License" }
-classifiers = ["Programming Language :: Python :: 3"]
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "Zach Vorhies", email = "zach@zachvorhies.com"}
+]
+keywords = ["git", "ai", "commit", "automation", "workflow"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Version Control :: Git",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
 dependencies = [
-
+    "openai>=1.0.0",
+    "anthropic>=0.18.0",
+    "appdirs>=1.4.4",
+    "keyring>=24.0.0",
 ]
-# Change this with the version number bump.
-version = "0.0.1"
 
-[tool.setuptools]
-package-dir = {"" = "src"}
-
-[tool.ruff]
-line-length = 200
-
-[tool.pylint."MESSAGES CONTROL"]
-good-names = [
-    "c",
-    "i",
-    "ok",
-    "id",
-    "e",
-    "f"
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "isort>=5.12.0",
+    "flake8>=6.0.0",
+    "mypy>=1.0.0",
 ]
-disable = [
-    "missing-function-docstring",
-    "missing-module-docstring"
-]
+
+[project.urls]
+Homepage = "https://github.com/zackees/codeup"
+Repository = "https://github.com/zackees/codeup"
+Issues = "https://github.com/zackees/codeup/issues"
+Documentation = "https://github.com/zackees/codeup#readme"
+
+[project.scripts]
+codeup = "codeup.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.black]
+line-length = 88
+target-version = ['py38']
+include = '\.pyi?$'
 
 [tool.isort]
 profile = "black"
+multi_line_output = 3
+line_length = 88
 
 [tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
 ignore_missing_imports = true
-disable_error_code = ["import-untyped"]
 
-[project.scripts]
-codeup = "codeup.cli:main"
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+addopts = "--verbose --tb=short"

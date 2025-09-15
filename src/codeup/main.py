@@ -445,88 +445,92 @@ Respond with only the commit message, nothing else."""
 
 
 def _generate_ai_commit_message() -> str | None:
-    """Generate commit message using git-ai-commit Python API with Anthropic fallback."""
+    """Generate commit message using OpenAI API with Anthropic fallback."""
     try:
-        # Suppress pkg_resources warnings from ai_commit_msg
-        with warnings.catch_warnings():
-            warnings.filterwarnings(
-                "ignore", category=UserWarning, module="ai_commit_msg"
-            )
-            from ai_commit_msg.core.gen_commit_msg import generate_commit_message
-            from ai_commit_msg.services.git_service import GitService
-
         # Import and use existing OpenAI config system
-        try:
-            from codeup.config import get_openai_api_key
+        from codeup.config import get_openai_api_key
 
-            api_key = get_openai_api_key()
+        api_key = get_openai_api_key()
 
-            if api_key:
-                # Set the API key for both openai and git-ai-commit
-                openai.api_key = api_key
-                os.environ["OPENAI_API_KEY"] = api_key
-
-                # Force the correct OpenAI API endpoint
-                # This fixes the issue where requests were going to dashscope-intl.aliyuncs.com
-                os.environ["OPENAI_BASE_URL"] = "https://api.openai.com/v1"
-                os.environ["OPENAI_API_BASE"] = "https://api.openai.com/v1"
-
-                # Also set the openai client directly to be extra sure
-                openai.base_url = "https://api.openai.com/v1"
-
-                logger.info(f"Using OpenAI API key, length: {len(api_key)}")
-                logger.info("Set OpenAI base URL to: https://api.openai.com/v1")
-            else:
-                logger.info("No OpenAI API key found, will try Anthropic fallback")
-
-        except ImportError as e:
-            logger.error(f"Import error in OpenAI config: {e}")
-            api_key = None
-
-        # Get staged diff using git-ai-commit's GitService
+        # Get staged diff
         logger.info("Getting git diff for commit message generation")
-        staged_diff = GitService.get_staged_diff()
-
-        if not staged_diff or not staged_diff.stdout or not staged_diff.stdout.strip():
-            # No staged changes, get regular diff
-            logger.info("No staged changes, getting regular diff")
-            result = subprocess.run(
-                ["git", "diff"],
+        try:
+            # Check for staged changes first
+            staged_result = subprocess.run(
+                ["git", "diff", "--cached"],
                 capture_output=True,
                 text=True,
                 check=True,
                 encoding="utf-8",
             )
-            diff_text = result.stdout.strip()
+            diff_text = staged_result.stdout.strip()
+
             if not diff_text:
-                logger.warning("No changes found in git diff")
-                return None
-        else:
-            diff_text = staged_diff.stdout
-            logger.info(f"Got staged diff, length: {len(diff_text)}")
+                # No staged changes, get regular diff
+                logger.info("No staged changes, getting regular diff")
+                result = subprocess.run(
+                    ["git", "diff"],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    encoding="utf-8",
+                )
+                diff_text = result.stdout.strip()
+                if not diff_text:
+                    logger.warning("No changes found in git diff")
+                    return None
+        except Exception as e:
+            logger.error(f"Error getting git diff: {e}")
+            return None
+
+        logger.info(f"Got diff, length: {len(diff_text)}")
 
         # Try OpenAI first if we have a key
         if api_key:
             try:
-                # Generate commit message using git-ai-commit API
-                logger.info(
-                    "Calling generate_commit_message from git-ai-commit (OpenAI)"
-                )
-                with warnings.catch_warnings():
-                    warnings.filterwarnings(
-                        "ignore", category=UserWarning, module="ai_commit_msg"
-                    )
-                    commit_message = generate_commit_message(
-                        diff=diff_text, conventional=True
-                    )
+                # Set the API key for OpenAI
+                os.environ["OPENAI_API_KEY"] = api_key
 
-                if commit_message is not None:
-                    logger.info(
-                        f"Successfully generated OpenAI commit message: {commit_message[:50]}..."
-                    )
-                    return commit_message.strip()
+                # Force the correct OpenAI API endpoint
+                os.environ["OPENAI_BASE_URL"] = "https://api.openai.com/v1"
+                os.environ["OPENAI_API_BASE"] = "https://api.openai.com/v1"
+
+                logger.info(f"Using OpenAI API key, length: {len(api_key)}")
+                logger.info("Set OpenAI base URL to: https://api.openai.com/v1")
+
+                # Create OpenAI client
+                client = openai.OpenAI(api_key=api_key)
+
+                prompt = f"""You are an expert developer who writes clear, concise commit messages following conventional commit format.
+
+Analyze the following git diff and generate a single line commit message that:
+1. Follows conventional commit format (type(scope): description)
+2. Uses one of these types: feat, fix, docs, style, refactor, perf, test, chore, ci, build
+3. Is under 72 characters
+4. Describes the main change concisely
+5. Uses imperative mood (e.g., "add", not "added")
+
+Git diff:
+```
+{diff_text}
+```
+
+Respond with only the commit message, nothing else."""
+
+                response = client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=100,
+                    temperature=0.3,
+                )
+
+                if response.choices and len(response.choices) > 0:
+                    commit_message = response.choices[0].message.content.strip()
+                    logger.info(f"Successfully generated OpenAI commit message: {commit_message[:50]}...")
+                    return commit_message
                 else:
-                    logger.warning("OpenAI commit message generation returned None")
+                    logger.warning("OpenAI API returned empty response")
+
             except Exception as e:
                 logger.warning(f"OpenAI commit message generation failed: {e}")
                 print(f"OpenAI generation failed: {e}")
@@ -553,11 +557,6 @@ def _generate_ai_commit_message() -> str | None:
         )
         return None
 
-    except ImportError as e:
-        logger.error(f"ImportError in _generate_ai_commit_message: {e}")
-        print("Warning: git-ai-commit library not available for AI commit messages")
-        print("Install with: pip install git-ai-commit")
-        return None
     except KeyboardInterrupt:
         logger.info("_generate_ai_commit_message interrupted by user")
         _thread.interrupt_main()
