@@ -56,9 +56,7 @@ class KeyringManager:
                     logger.debug(f"semi_secret get failed: {e}")
                     return None
 
-            def set_password(
-                self, service: str, username: str, password: str
-            ) -> None:
+            def set_password(self, service: str, username: str, password: str) -> None:
                 semi_secret.set(f"{service}:{username}", password)
 
             def delete_password(self, service: str, username: str) -> None:

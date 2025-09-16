@@ -4,18 +4,18 @@ This module provides lexical parsing of shebang lines to handle modern
 patterns like UV's '#!/usr/bin/env -S uv run --python 3.12' accurately.
 """
 
-import os
-import sys
 import shlex
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Dict
+from typing import List, Optional
 
 
 @dataclass(frozen=True)
 class ShebangResult:
     """Result of shebang parsing containing program and arguments."""
+
     program: str
     args: List[str]
 
@@ -26,7 +26,7 @@ class ShebangProcessor:
     def __init__(self):
         """Initialize the ShebangProcessor."""
         self._bash_exe = None
-        if sys.platform == 'win32':
+        if sys.platform == "win32":
             self._bash_exe = self._find_bash_executable()
 
     def lex_parse_shebang(self, shebang_line: str) -> Optional[ShebangResult]:
@@ -45,7 +45,7 @@ class ShebangProcessor:
             >>> processor.lex_parse_shebang("#!/bin/bash")
             ShebangResult(program='bash', args=[])
         """
-        if not shebang_line or not shebang_line.startswith('#!'):
+        if not shebang_line or not shebang_line.startswith("#!"):
             return None
 
         # Remove the #! prefix and strip whitespace
@@ -69,7 +69,7 @@ class ShebangProcessor:
                 return ShebangResult(program=program, args=[])
 
             # Check for /usr/bin/env patterns
-            if tokens[0].endswith('/env'):
+            if tokens[0].endswith("/env"):
                 return self._parse_env_shebang(tokens[1:])
             else:
                 # Direct interpreter with args: #!/usr/bin/python3 -u -O
@@ -77,7 +77,7 @@ class ShebangProcessor:
                 args = tokens[1:]
                 return ShebangResult(program=program, args=args)
 
-        except ValueError as e:
+        except ValueError:
             # shlex.split can raise ValueError for malformed input
             return None
 
@@ -94,7 +94,7 @@ class ShebangProcessor:
             return None
 
         # Handle -S flag for env
-        if env_args[0] == '-S':
+        if env_args[0] == "-S":
             if len(env_args) < 2:
                 return None
             # After -S, the next token is the program
@@ -126,9 +126,7 @@ class ShebangProcessor:
         for path in possible_paths:
             try:
                 result = subprocess.run(
-                    [path, "--version"],
-                    capture_output=True,
-                    timeout=5
+                    [path, "--version"], capture_output=True, timeout=5
                 )
                 if result.returncode == 0:
                     return path
@@ -146,15 +144,15 @@ class ShebangProcessor:
         Returns:
             Resolved interpreter path
         """
-        if sys.platform != 'win32':
+        if sys.platform != "win32":
             return interpreter
 
         # Special handling for common interpreters on Windows
-        if interpreter in ('bash', 'sh'):
+        if interpreter in ("bash", "sh"):
             if self._bash_exe:
                 return self._bash_exe
             return interpreter
-        elif interpreter in ('python', 'python3'):
+        elif interpreter in ("python", "python3"):
             return sys.executable
         else:
             return interpreter
@@ -169,13 +167,15 @@ class ShebangProcessor:
             ShebangResult or None if no shebang found
         """
         try:
-            with open(script_path, 'r', encoding='utf-8') as f:
+            with open(script_path, encoding="utf-8") as f:
                 first_line = f.readline().strip()
                 return self.lex_parse_shebang(first_line)
         except (OSError, UnicodeDecodeError):
             return None
 
-    def get_execution_command(self, script_path: str, script_args: List[str] = None) -> List[str]:
+    def get_execution_command(
+        self, script_path: str, script_args: List[str] = None
+    ) -> List[str]:
         """Get the command needed to execute the script on current platform.
 
         Args:
@@ -197,7 +197,9 @@ class ShebangProcessor:
 
         return [resolved_program] + shebang_result.args + [script_path] + script_args
 
-    def execute_script(self, script_path: str, script_args: List[str] = None, **kwargs) -> int:
+    def execute_script(
+        self, script_path: str, script_args: List[str] = None, **kwargs
+    ) -> int:
         """Execute script with cross-platform shebang handling.
 
         Args:
