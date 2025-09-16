@@ -30,6 +30,13 @@ CodeUp is an intelligent git workflow automation tool that streamlines developme
 - **Installation**: `./install` - Development installation script
 - **Publishing**: `./upload_package.sh` - Package publishing (triggered by `codeup --publish`)
 
+### UV Project Requirements
+**CRITICAL**: This project uses UV for Python environment and dependency management.
+
+- **NEVER use `python` directly** - Always use `uv run python` or `uv run <command>`
+- **Testing**: Use `uv run pytest` not `python -m pytest`
+- **Script execution**: Use `uv run python script.py` not `python script.py`
+
 ### Testing
 ```bash
 # Run all tests
@@ -146,3 +153,43 @@ def parse_data(text: str) -> ParseResult:
 - Unpacking in function parameters: `*args`
 - Dictionary items iteration: `dict.items()`
 - Built-in functions that require tuples: `isinstance(obj, (str, int))`
+
+### Standalone Test Execution Rule
+**ALL unit test files MUST include a `if __name__ == "__main__":` section for standalone execution.**
+
+**Test Structure Requirements**:
+- Use `unittest.TestCase` classes for all test definitions
+- Use `unittest.main()` for standalone execution
+- Project uses pytest as the test runner for full test suite
+- Individual files run with unittest for standalone debugging
+
+**Rationale**: Enables running individual test files directly for faster development and debugging without running the entire test suite.
+
+```python
+# Required pattern for all test files
+import unittest
+
+class TestMyFeature(unittest.TestCase):
+    def setUp(self):
+        # Setup code here
+        pass
+
+    def test_something(self):
+        self.assertEqual(actual, expected)
+
+if __name__ == "__main__":
+    unittest.main()
+```
+
+**Import Rules for Tests**:
+- **NEVER import `src.*` modules directly** - This indicates incorrect execution method
+- **NEVER use `sys.path.insert()` or `sys.path.append()`** - This indicates incorrect execution method
+- Use proper UV environment: `uv run pytest` handles import paths correctly
+- If seeing import errors or path manipulation, you're using `python` instead of `uv run`
+
+**Benefits**:
+- Fast iteration during development
+- Easy debugging of specific test modules
+- Consistent execution pattern across all tests
+- Works with both unittest and pytest runners
+- No import path issues when using UV correctly

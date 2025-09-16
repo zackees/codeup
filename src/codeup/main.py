@@ -13,6 +13,8 @@ import _thread
 import logging
 import os
 import sys
+import threading
+import time
 
 from codeup.aicommit import ai_commit_or_prompt_for_commit_message
 from codeup.args import Args
@@ -64,8 +66,8 @@ if sys.platform == "win32":
 IS_UV_PROJECT = is_uv_project()
 
 
-def main() -> int:
-    """Run git status, lint, test, add, and commit."""
+def _main_worker() -> int:
+    """Worker function that runs the main codeup logic."""
 
     args = Args.parse_args()
     configure_logging(args.log)
@@ -313,5 +315,50 @@ def main() -> int:
     return 0
 
 
+def main() -> int:
+    """Main entry point with 5-minute timeout and non-blocking execution."""
+
+    # Global variable to store the result from the worker thread
+    result = [1]  # Default to error exit code
+
+    def timeout_handler():
+        """Handle timeout by forcing process exit."""
+        time.sleep(300)  # 5 minutes = 300 seconds
+        logger.error("Process timed out after 5 minutes, forcing exit")
+        print("ERROR: Process timed out after 5 minutes, forcing exit", file=sys.stderr)
+        _thread.interrupt_main()
+        os._exit(1)
+
+    def worker_wrapper():
+        """Wrapper for the main worker that stores the result."""
+        try:
+            result[0] = _main_worker()
+        except KeyboardInterrupt:
+            logger.info("Worker thread interrupted")
+            result[0] = 1
+        except Exception as e:
+            logger.error(f"Worker thread failed: {e}")
+            result[0] = 1
+
+    # Start the timeout handler in a daemon thread
+    timeout_thread = threading.Thread(target=timeout_handler, daemon=True)
+    timeout_thread.start()
+
+    # Start the main worker in a separate thread
+    worker_thread = threading.Thread(target=worker_wrapper)
+    worker_thread.start()
+
+    try:
+        # Wait for the worker thread to complete
+        worker_thread.join()
+        return result[0]
+    except KeyboardInterrupt:
+        logger.info("Main thread interrupted by user")
+        print("Aborting", file=sys.stderr)
+        # Give worker thread a moment to clean up
+        worker_thread.join(timeout=1.0)
+        return 1
+
+
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
