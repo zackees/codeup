@@ -29,6 +29,7 @@ from codeup.git_utils import (
     has_changes_to_commit,
     safe_push,
 )
+from codeup.keyring import set_anthropic_api_key, set_openai_api_key
 from codeup.running_process import (
     run_command_with_timeout,
 )
@@ -72,35 +73,15 @@ def main() -> int:
 
     # Handle key setting flags
     if args.set_key_anthropic:
-        try:
-            import keyring
-
-            keyring.set_password("zcmds", "anthropic_api_key", args.set_key_anthropic)
-            print("Anthropic API key stored in system keyring")
+        if set_anthropic_api_key(args.set_key_anthropic):
             return 0
-        except ImportError as e:
-            logger.warning(f"Keyring not available for Anthropic key: {e}")
-            print("Error: keyring not available. Install with: pip install keyring")
-            return 1
-        except Exception as e:
-            logger.error(f"Error storing Anthropic key: {e}")
-            print(f"Error storing Anthropic key: {e}")
+        else:
             return 1
 
     if args.set_key_openai:
-        try:
-            import keyring
-
-            keyring.set_password("zcmds", "openai_api_key", args.set_key_openai)
-            print("OpenAI API key stored in system keyring")
+        if set_openai_api_key(args.set_key_openai):
             return 0
-        except ImportError as e:
-            logger.warning(f"Keyring not available for OpenAI key: {e}")
-            print("Error: keyring not available. Install with: pip install keyring")
-            return 1
-        except Exception as e:
-            logger.error(f"Error storing OpenAI key: {e}")
-            print(f"Error storing OpenAI key: {e}")
+        else:
             return 1
 
     git_path = check_environment()

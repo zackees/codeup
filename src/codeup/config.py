@@ -38,62 +38,32 @@ def create_or_load_config() -> dict:
 
 def get_anthropic_api_key() -> Union[str, None]:
     """Get Anthropic API key from various sources in order of preference."""
-    # 1. Check config file
-    config = create_or_load_config()
-    if "anthropic_key" in config and config["anthropic_key"]:
-        return config["anthropic_key"]
+    # Use the new keyring module which has config_manager parameter
+    import codeup.config as config_module
+    from codeup.keyring import get_anthropic_api_key as keyring_get_anthropic_key
 
-    # 2. Check keyring/keystore
-    try:
-        import keyring
-
-        api_key = keyring.get_password("zcmds", "anthropic_api_key")
-        if api_key:
-            return api_key
-    except (ImportError, Exception) as e:
-        logger.debug(f"Could not access keyring for API key: {e}")
-        pass
-
-    # 3. Check environment variable
-    return os.environ.get("ANTHROPIC_API_KEY")
+    return keyring_get_anthropic_key(config_module)
 
 
 def get_openai_api_key() -> Union[str, None]:
     """Get OpenAI API key from various sources in order of preference."""
-    # 1. Check config file
-    config = create_or_load_config()
-    if "openai_key" in config and config["openai_key"]:
-        return config["openai_key"]
+    # Use the new keyring module which has config_manager parameter
+    import codeup.config as config_module
+    from codeup.keyring import get_openai_api_key as keyring_get_openai_key
 
-    # 2. Check keyring/keystore
-    try:
-        import keyring
-
-        api_key = keyring.get_password("zcmds", "openai_api_key")
-        if api_key:
-            return api_key
-    except (ImportError, Exception) as e:
-        logger.debug(f"Could not access keyring for OpenAI API key: {e}")
-        pass
-
-    # 3. Check environment variable
-    return os.environ.get("OPENAI_API_KEY")
+    return keyring_get_openai_key(config_module)
 
 
 def _set_key_in_keyring(service: str, key_name: str, api_key: str) -> bool:
     """Set API key in system keyring. Returns True if successful."""
-    try:
-        import keyring
+    from codeup.keyring import KeyringManager
 
-        keyring.set_password("zcmds", key_name, api_key)
+    keyring_manager = KeyringManager(service)
+    if keyring_manager.set_password(key_name, api_key):
         return True
-    except ImportError as e:
-        logger.warning(f"Keyring not available: {e}")
-        print("Error: keyring not available. Install with: pip install keyring")
-        return False
-    except Exception as e:
-        logger.error(f"Error storing key in keyring: {e}")
-        print(f"Error storing key in keyring: {e}")
+    else:
+        if not keyring_manager.is_keyring_available():
+            print("Error: keyring not available. Install with: pip install keyring")
         return False
 
 
@@ -108,6 +78,26 @@ def _set_key_in_config(key_name: str, api_key: str) -> bool:
         logger.error(f"Error storing key in config: {e}")
         print(f"Error storing key in config: {e}")
         return False
+
+
+def _determine_key_source(
+    config_key: str, env_var: str, key_value: Union[str, None]
+) -> str:
+    """Determine the source of an API key."""
+    if key_value is None:
+        return "none"
+
+    # Check if it matches environment variable
+    if key_value == os.environ.get(env_var):
+        return "environment variable"
+
+    # Check if it's in config file
+    config = create_or_load_config()
+    if config_key in config and config[config_key] == key_value:
+        return "config file"
+
+    # Otherwise assume it's from keyring
+    return "keyring"
 
 
 def _show_key_status(key_name: str, source: str, key_value: Union[str, None]) -> None:
@@ -171,64 +161,42 @@ Examples:
 
         # Check OpenAI key
         openai_key = get_openai_api_key()
-        if openai_key == os.environ.get("OPENAI_API_KEY"):
-            source = "environment variable"
-        else:
-            config = create_or_load_config()
-            if "openai_key" in config and config["openai_key"] == openai_key:
-                source = "config file"
-            else:
-                source = "keyring"
+        source = _determine_key_source("openai_key", "OPENAI_API_KEY", openai_key)
         _show_key_status("OpenAI", source, openai_key)
 
         # Check Anthropic key
         anthropic_key = get_anthropic_api_key()
-        if anthropic_key == os.environ.get("ANTHROPIC_API_KEY"):
-            source = "environment variable"
-        else:
-            config = create_or_load_config()
-            if "anthropic_key" in config and config["anthropic_key"] == anthropic_key:
-                source = "config file"
-            else:
-                source = "keyring"
+        source = _determine_key_source(
+            "anthropic_key", "ANTHROPIC_API_KEY", anthropic_key
+        )
         _show_key_status("Anthropic", source, anthropic_key)
         return 0
 
     # Set Anthropic key
     if args.set_key_anthropic:
-        if args.use_config:
-            if _set_key_in_config("anthropic_key", args.set_key_anthropic):
-                print("Anthropic API key stored in config file")
-                return 0
-            return 1
-        else:
-            if _set_key_in_keyring(
-                "zcmds", "anthropic_api_key", args.set_key_anthropic
-            ):
-                print("Anthropic API key stored in system keyring")
-                return 0
-            # Fallback to config if keyring fails
-            if _set_key_in_config("anthropic_key", args.set_key_anthropic):
-                print("Anthropic API key stored in config file (keyring unavailable)")
-                return 0
-            return 1
+        import codeup.config as config_module
+        from codeup.keyring import set_anthropic_api_key
+
+        if set_anthropic_api_key(
+            args.set_key_anthropic,
+            prefer_config=args.use_config,
+            config_manager=config_module,
+        ):
+            return 0
+        return 1
 
     # Set OpenAI key
     if args.set_key_openai:
-        if args.use_config:
-            if _set_key_in_config("openai_key", args.set_key_openai):
-                print("OpenAI API key stored in config file")
-                return 0
-            return 1
-        else:
-            if _set_key_in_keyring("zcmds", "openai_api_key", args.set_key_openai):
-                print("OpenAI API key stored in system keyring")
-                return 0
-            # Fallback to config if keyring fails
-            if _set_key_in_config("openai_key", args.set_key_openai):
-                print("OpenAI API key stored in config file (keyring unavailable)")
-                return 0
-            return 1
+        import codeup.config as config_module
+        from codeup.keyring import set_openai_api_key
+
+        if set_openai_api_key(
+            args.set_key_openai,
+            prefer_config=args.use_config,
+            config_manager=config_module,
+        ):
+            return 0
+        return 1
 
     # If no specific action, show help
     parser.print_help()

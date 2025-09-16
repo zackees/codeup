@@ -34,6 +34,7 @@ dependencies = [
     "anthropic>=0.18.0",
     "appdirs>=1.4.4",
     "keyring>=24.0.0",
+    "semi_secret>=1.0.0",
 ]
 
 [project.optional-dependencies]
