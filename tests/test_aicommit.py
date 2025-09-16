@@ -144,7 +144,9 @@ def multiply_numbers(a, b):
                 ai_message, str, "AI commit message should be a string"
             )
             self.assertGreater(
-                len(ai_message.strip()), 10, "AI commit message should be substantial"
+                len(ai_message.strip() if ai_message else ""),
+                10,
+                "AI commit message should be substantial",
             )
 
             print(f"Generated AI commit message: {ai_message}")
@@ -153,7 +155,7 @@ def multiply_numbers(a, b):
             # Should start with a type like feat:, fix:, docs:, etc. with optional scope like feat(scope):
             import re
 
-            lower_message = ai_message.lower()
+            lower_message = ai_message.lower() if ai_message else ""
             conventional_types = [
                 "feat",
                 "fix",
@@ -176,7 +178,9 @@ def multiply_numbers(a, b):
 
             # Test that we can create the commit
             subprocess.run(
-                ["git", "commit", "-m", ai_message], check=True, capture_output=True
+                ["git", "commit", "-m", ai_message or "default commit"],
+                check=True,
+                capture_output=True,
             )
 
             # Verify commit was created
@@ -188,7 +192,7 @@ def multiply_numbers(a, b):
             )
 
             self.assertIn(
-                ai_message[:30],
+                (ai_message or "")[:30],
                 log_result.stdout,
                 "Commit should contain our AI-generated message",
             )
@@ -253,7 +257,7 @@ def multiply_numbers(a, b):
                 anthropic_message, str, "Anthropic commit message should be a string"
             )
             self.assertGreater(
-                len(anthropic_message.strip()),
+                len(anthropic_message.strip() if anthropic_message else ""),
                 10,
                 "Anthropic commit message should be substantial",
             )
@@ -262,7 +266,7 @@ def multiply_numbers(a, b):
 
             # Verify it's under 72 characters (conventional commit best practice)
             self.assertLessEqual(
-                len(anthropic_message),
+                len(anthropic_message or ""),
                 72,
                 "Commit message should be under 72 characters",
             )

@@ -19,6 +19,7 @@ import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from shutil import which
+from typing import List, Tuple, Union
 
 import openai
 
@@ -153,12 +154,13 @@ def check_environment() -> Path:
 
     if not which("oco"):
         warnings.warn(
-            "opencommit (oco) is not installed. Skipping automatic commit message generation."
+            "opencommit (oco) is not installed. Skipping automatic commit message generation.",
+            stacklevel=2,
         )
     return Path(git_dir)
 
 
-def get_answer_yes_or_no(question: str, default: bool | str = "y") -> bool:
+def get_answer_yes_or_no(question: str, default: Union[bool, str] = "y") -> bool:
     """Ask a yes/no question and return the answer."""
     # Check if stdin is available
     if not sys.stdin.isatty():
@@ -203,7 +205,7 @@ def get_answer_yes_or_no(question: str, default: bool | str = "y") -> bool:
 
 def configure_logging(enable_file_logging: bool) -> None:
     """Configure logging based on whether file logging should be enabled."""
-    handlers: list[logging.Handler] = [logging.StreamHandler(sys.stderr)]
+    handlers: List[logging.Handler] = [logging.StreamHandler(sys.stderr)]
     if enable_file_logging:
         handlers.append(logging.FileHandler("codeup.log"))
 
@@ -217,23 +219,25 @@ def configure_logging(enable_file_logging: bool) -> None:
 
 @dataclass
 class Args:
-    repo: str | None
+    repo: Union[str, None]
     no_push: bool
     verbose: bool
     no_test: bool
     no_lint: bool
     publish: bool
     no_autoaccept: bool
-    message: str | None
+    message: Union[str, None]
     no_rebase: bool
     no_interactive: bool
     log: bool
     just_ai_commit: bool
-    set_key_anthropic: str | None
-    set_key_openai: str | None
+    set_key_anthropic: Union[str, None]
+    set_key_openai: Union[str, None]
 
     def __post_init__(self) -> None:
-        assert isinstance(self.repo, str | None), f"Expected str, got {type(self.repo)}"
+        assert isinstance(
+            self.repo, (str, type(None))
+        ), f"Expected str, got {type(self.repo)}"
         assert isinstance(
             self.no_push, bool
         ), f"Expected bool, got {type(self.no_push)}"
@@ -253,7 +257,7 @@ class Args:
             self.no_autoaccept, bool
         ), f"Expected bool, got {type(self.no_autoaccept)}"
         assert isinstance(
-            self.message, str | None
+            self.message, (str, type(None))
         ), f"Expected str, got {type(self.message)}"
         assert isinstance(
             self.no_rebase, bool
@@ -266,11 +270,11 @@ class Args:
             self.just_ai_commit, bool
         ), f"Expected bool, got {type(self.just_ai_commit)}"
         assert isinstance(
-            self.set_key_anthropic, str | None
-        ), f"Expected str | None, got {type(self.set_key_anthropic)}"
+            self.set_key_anthropic, (str, type(None))
+        ), f"Expected (str, type(None)), got {type(self.set_key_anthropic)}"
         assert isinstance(
-            self.set_key_openai, str | None
-        ), f"Expected str | None, got {type(self.set_key_openai)}"
+            self.set_key_openai, (str, type(None))
+        ), f"Expected (str, type(None)), got {type(self.set_key_openai)}"
 
 
 def _parse_args() -> Args:
@@ -360,7 +364,7 @@ def _publish() -> None:
     _exec("./upload_package.sh", bash=True)
 
 
-def _get_keyring_api_key() -> str | None:
+def _get_keyring_api_key() -> Union[str, None]:
     """Get OpenAI API key from system keyring/keystore."""
     try:
         import keyring
@@ -379,7 +383,7 @@ def _get_keyring_api_key() -> str | None:
         return None
 
 
-def _generate_ai_commit_message_anthropic(diff_text: str) -> str | None:
+def _generate_ai_commit_message_anthropic(diff_text: str) -> Union[str, None]:
     """Generate commit message using Anthropic Claude API as fallback."""
     try:
         import anthropic
@@ -444,7 +448,7 @@ Respond with only the commit message, nothing else."""
         return None
 
 
-def _generate_ai_commit_message() -> str | None:
+def _generate_ai_commit_message() -> Union[str, None]:
     """Generate commit message using OpenAI API with Anthropic fallback."""
     try:
         # Import and use existing OpenAI config system
@@ -525,7 +529,8 @@ Respond with only the commit message, nothing else."""
                 )
 
                 if response.choices and len(response.choices) > 0:
-                    commit_message = response.choices[0].message.content.strip()
+                    content = response.choices[0].message.content
+                    commit_message = content.strip() if content else ""
                     logger.info(
                         f"Successfully generated OpenAI commit message: {commit_message[:50]}..."
                     )
@@ -658,7 +663,7 @@ def _opencommit_or_prompt_for_commit_message(
 
 
 def _ai_commit_or_prompt_for_commit_message(
-    no_autoaccept: bool, message: str | None = None, no_interactive: bool = False
+    no_autoaccept: bool, message: Union[str, None] = None, no_interactive: bool = False
 ) -> None:
     """Generate commit message using AI or prompt for manual input."""
     if message:
@@ -723,7 +728,7 @@ def has_changes_to_commit() -> bool:
         return False
 
 
-def get_untracked_files() -> list[str]:
+def get_untracked_files() -> List[str]:
     """Get list of untracked files."""
     result = subprocess.run(
         ["git", "ls-files", "--others", "--exclude-standard"],
@@ -820,12 +825,12 @@ def check_rebase_needed(main_branch: str) -> bool:
         return False
 
 
-def attempt_safe_rebase(main_branch: str) -> tuple[bool, bool]:
+def attempt_safe_rebase(main_branch: str) -> Tuple[bool, bool]:
     """
     Attempt a rebase and handle conflicts properly.
 
     Returns:
-        tuple[bool, bool]: (success, had_conflicts)
+        Tuple[bool, bool]: (success, had_conflicts)
         - success: True if rebase completed successfully
         - had_conflicts: True if conflicts were encountered (and rebase was aborted)
     """
@@ -853,7 +858,6 @@ def attempt_safe_rebase(main_branch: str) -> tuple[bool, bool]:
                 or "failed to merge" in stderr_lower
                 or "failed to merge" in stdout_lower
             ):
-
                 logger.info("Rebase failed due to conflicts, aborting rebase")
                 # Abort the rebase to return to clean state
                 abort_result = subprocess.run(
