@@ -276,11 +276,14 @@ def configure_logging(enable_file_logging: bool) -> None:
         handlers.append(logging.FileHandler("codeup.log"))
 
     logging.basicConfig(
-        level=logging.INFO,  # Changed from ERROR to INFO for more detailed logging
+        level=logging.WARNING,  # Changed to WARNING to reduce verbosity
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         handlers=handlers,
         force=True,  # Override any existing configuration
     )
+
+    # Reduce verbosity of third-party loggers
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 @dataclass
