@@ -3,6 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import pytest
+
 
 class ConfigTester(unittest.TestCase):
     """Test configuration management functionality."""
@@ -26,6 +28,7 @@ class ConfigTester(unittest.TestCase):
 
         shutil.rmtree(self.test_dir, onerror=handle_remove_readonly)
 
+    @pytest.mark.unit
     def test_config_path_generation(self):
         """Test config path generation."""
         import sys
@@ -49,6 +52,7 @@ class ConfigTester(unittest.TestCase):
             if src_path in sys.path:
                 sys.path.remove(src_path)
 
+    @pytest.mark.unit
     def test_config_save_and_load(self):
         """Test config save and load functionality."""
         import sys
@@ -101,6 +105,7 @@ class ConfigTester(unittest.TestCase):
             if src_path in sys.path:
                 sys.path.remove(src_path)
 
+    @pytest.mark.unit
     def test_api_key_retrieval(self):
         """Test API key retrieval from various sources."""
         import sys
@@ -130,6 +135,7 @@ class ConfigTester(unittest.TestCase):
             if src_path in sys.path:
                 sys.path.remove(src_path)
 
+    @pytest.mark.unit
     def test_environment_variable_api_keys(self):
         """Test API key retrieval from environment variables."""
         import sys

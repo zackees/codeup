@@ -4,6 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import pytest
+
 
 class CodeupAICommitTester(unittest.TestCase):
     """Test the AI commit functionality in codeup."""
@@ -61,6 +63,9 @@ if __name__ == "__main__":
 
         shutil.rmtree(self.test_dir, onerror=handle_remove_readonly)
 
+    @pytest.mark.ai
+    @pytest.mark.integration
+    @pytest.mark.usefixtures("mock_ai_apis", "mock_api_keys")
     def test_ai_commit_generation_with_dry_run(self):
         """Test that AI commit generation works with real changes and no push."""
         # Make meaningful changes that should generate a good commit message
@@ -217,6 +222,9 @@ def multiply_numbers(a, b):
             if src_path in sys.path:
                 sys.path.remove(src_path)
 
+    @pytest.mark.ai
+    @pytest.mark.integration
+    @pytest.mark.usefixtures("mock_ai_apis", "mock_api_keys")
     def test_ai_commit_with_anthropic_fallback(self):
         """Test that Anthropic API is used when OpenAI fails."""
         # Make a simple change
@@ -277,6 +285,9 @@ def multiply_numbers(a, b):
             if src_path in sys.path:
                 sys.path.remove(src_path)
 
+    @pytest.mark.ai
+    @pytest.mark.integration
+    @pytest.mark.usefixtures("mock_ai_apis", "mock_api_keys")
     def test_codeup_just_ai_commit_no_interactive(self):
         """Test codeup --just-ai-commit in non-interactive mode."""
         # Make changes

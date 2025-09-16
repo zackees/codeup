@@ -15,6 +15,7 @@ import logging
 import os
 import subprocess
 import sys
+import threading
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,6 +26,64 @@ import openai
 
 # Logger will be configured in main() based on --log flag
 logger = logging.getLogger(__name__)
+
+
+class InputTimeoutError(Exception):
+    """Raised when input times out."""
+
+    pass
+
+
+def input_with_timeout(prompt: str, timeout_seconds: int = 300) -> str:
+    """
+    Get user input with a timeout. Raises InputTimeoutError if timeout is reached.
+
+    Args:
+        prompt: The prompt to display to the user
+        timeout_seconds: Timeout in seconds (default 5 minutes)
+
+    Returns:
+        The user's input string
+
+    Raises:
+        InputTimeoutError: If timeout is reached without user input
+        EOFError: If input stream is closed
+    """
+    # Check if we're in a non-interactive environment first
+    if not sys.stdin.isatty():
+        raise EOFError("No interactive terminal available")
+
+    result = []
+    exception_holder = []
+
+    def get_input():
+        try:
+            result.append(input(prompt))
+        except Exception as e:
+            exception_holder.append(e)
+
+    # Start input thread
+    input_thread = threading.Thread(target=get_input, daemon=True)
+    input_thread.start()
+
+    # Wait for either input or timeout
+    input_thread.join(timeout=timeout_seconds)
+
+    if input_thread.is_alive():
+        # Timeout occurred
+        logger.warning(f"Input timed out after {timeout_seconds} seconds")
+        raise InputTimeoutError(f"Input timed out after {timeout_seconds} seconds")
+
+    # Check if an exception occurred in the input thread
+    if exception_holder:
+        raise exception_holder[0]
+
+    # Return the input if successful
+    if result:
+        return result[0]
+    else:
+        raise InputTimeoutError("No input received")
+
 
 # Force UTF-8 encoding for proper international character handling
 if sys.platform == "win32":
@@ -176,7 +235,11 @@ def get_answer_yes_or_no(question: str, default: Union[bool, str] = "y") -> bool
 
     while True:
         try:
-            answer = input(question + " [y/n]: ").lower().strip()
+            answer = (
+                input_with_timeout(question + " [y/n]: ", timeout_seconds=300)
+                .lower()
+                .strip()
+            )
             if "y" in answer:
                 return True
             if "n" in answer:
@@ -191,15 +254,18 @@ def get_answer_yes_or_no(question: str, default: Union[bool, str] = "y") -> bool
                         return False
                 return True
             print("Please answer 'yes' or 'no'.")
-        except EOFError:
-            # No stdin available, use default
+        except (EOFError, InputTimeoutError) as e:
+            # No stdin available or timeout, use default
             result = (
                 True
                 if (isinstance(default, str) and default.lower() == "y")
                 or (isinstance(default, bool) and default)
                 else False
             )
-            print(f"\nNo input available, using default: {'y' if result else 'n'}")
+            logger.warning(f"Input failed for yes/no question: {e}")
+            print(
+                f"\nInput failed or timed out ({type(e).__name__}), using default: {'y' if result else 'n'}"
+            )
             return result
 
 
@@ -594,37 +660,13 @@ def _opencommit_or_prompt_for_commit_message(
 
     if ai_message:
         print(f"Generated commit message: {ai_message}")
-
-        if auto_accept:
-            # Use AI message without confirmation
-            _safe_git_commit(ai_message)
-            return
-        else:
-            # Ask user to confirm AI message
-            if no_interactive:
-                # In non-interactive mode, auto-accept AI generated message
-                print("Non-interactive mode: auto-accepting AI-generated message")
-                _safe_git_commit(ai_message)
-                return
-
-            try:
-                if not sys.stdin.isatty():
-                    print(
-                        "No interactive terminal - auto-accepting AI-generated message"
-                    )
-                    _safe_git_commit(ai_message)
-                    return
-
-                use_ai = input("Use this AI-generated message? [y/n]: ").lower().strip()
-                if use_ai in ["y", "yes", ""]:
-                    _safe_git_commit(ai_message)
-                    return
-            except EOFError:
-                print("No stdin available - auto-accepting AI-generated message")
-                _safe_git_commit(ai_message)
-                return
+        # Always auto-accept AI-generated messages when they succeed
+        print("Auto-accepting AI-generated commit message")
+        _safe_git_commit(ai_message)
+        return
     elif no_interactive:
         # In non-interactive mode, fail if AI commit generation fails
+        logger.error("AI commit generation failed in non-interactive mode")
         print("Error: Failed to generate AI commit message in non-interactive mode")
         print("This may be due to:")
         print("  - OpenAI API issues or rate limiting")
@@ -638,27 +680,28 @@ def _opencommit_or_prompt_for_commit_message(
         print(
             "    python -c \"from codeup.config import save_config; save_config({'openai_key': 'your_key'})\""
         )
-        sys.exit(1)
+        raise RuntimeError(
+            "AI commit message generation failed in non-interactive terminal"
+        )
 
     # Fall back to manual commit message
     if no_interactive:
-        print("Error: Cannot get commit message input in non-interactive mode")
+        logger.warning(
+            "Cannot get manual commit message input in non-interactive mode, using fallback"
+        )
+        print("Cannot get commit message input in non-interactive mode")
         print("Using generic commit message as fallback...")
         _safe_git_commit("chore: automated commit (AI unavailable)")
         return
 
     try:
-        if not sys.stdin.isatty():
-            print(
-                "No interactive terminal available - using generic commit message as fallback"
-            )
-            _safe_git_commit("chore: automated commit (no terminal)")
-            return
-        msg = input("Commit message: ")
+        msg = input_with_timeout("Commit message: ", timeout_seconds=300)
         _safe_git_commit(msg)
-    except EOFError:
-        print("No stdin available - using generic commit message as fallback")
-        _safe_git_commit("chore: automated commit (no stdin)")
+    except (EOFError, InputTimeoutError) as e:
+        logger.warning(f"Manual commit message input failed: {e}")
+        print(f"Commit message input failed or timed out ({type(e).__name__})")
+        print("Using generic commit message as fallback...")
+        _safe_git_commit("chore: automated commit (input failed)")
         return
 
 
