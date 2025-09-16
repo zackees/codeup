@@ -24,6 +24,8 @@ from typing import List, Tuple, Union
 
 import openai
 
+from codeup.running_process import run_command_with_streaming, run_command_with_timeout
+
 # Logger will be configured in main() based on --log flag
 logger = logging.getLogger(__name__)
 
@@ -163,16 +165,16 @@ def _exec(cmd: str, bash: bool, die=True) -> int:
     cmd = _to_exec_str(cmd, bash)
 
     try:
-        # Use subprocess.run instead of os.system for better encoding control
-        result = subprocess.run(
-            cmd,
-            shell=True,
-            encoding="utf-8",
-            errors="replace",
-            text=True,
-            capture_output=False,  # Let output go to console directly
-        )
-        rtn = result.returncode
+        # Use our new streaming process management for better reliability
+        if bash:
+            # For bash commands, use shell=True
+            rtn = run_command_with_streaming([cmd], shell=True)
+        else:
+            # For non-bash commands, split the command properly
+            import shlex
+
+            cmd_parts = shlex.split(cmd)
+            rtn = run_command_with_streaming(cmd_parts)
     except KeyboardInterrupt:
         logger.info("_exec interrupted by user")
         _thread.interrupt_main()
@@ -1167,144 +1169,95 @@ def main() -> int:
                         print(f"  Skipping {untracked_file}")
         if os.path.exists("./lint") and not args.no_lint:
             cmd = "./lint" + (" --verbose" if verbose else "")
-            # rtn = _exec(cmd, bash=True, die=True)  # Come back to this
-
             cmd = _to_exec_str(cmd, bash=True)
+
+            # Use our new streaming process with timeout
             uv_resolved_dependencies = True
-            proc = subprocess.Popen(
-                cmd,
-                shell=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                encoding="utf-8",
-                errors="replace",  # Replace unmappable characters
-                bufsize=1,  # Line buffered
-            )
+            try:
+                # Capture output to check for dependency resolution issues
+                import io
 
-            # Stream output with 60-second timeout between lines
-            import time
+                # Redirect stdout temporarily to capture output
+                original_stdout = sys.stdout
+                output_capture = io.StringIO()
 
-            with proc:
-                assert proc.stdout is not None
-                timeout_duration = 60  # 60 seconds of silence before timeout
-                last_output_time = time.time()
+                class TeeOutput:
+                    def __init__(self, *files):
+                        self.files = files
 
-                while True:
-                    # Check if process has finished
-                    if proc.poll() is not None:
-                        break
+                    def write(self, obj):
+                        for f in self.files:
+                            f.write(obj)
+                            f.flush()
 
-                    # Check for timeout (no output for 60 seconds)
-                    if time.time() - last_output_time > timeout_duration:
+                    def flush(self):
+                        for f in self.files:
+                            f.flush()
+
+                sys.stdout = TeeOutput(original_stdout, output_capture)
+
+                # Run with 300 second (5 minute) timeout
+                rtn = run_command_with_timeout([cmd], timeout=300.0, shell=True)
+
+                # Restore stdout and check output
+                sys.stdout = original_stdout
+                output_text = output_capture.getvalue()
+
+                if "No solution found when resolving dependencies" in output_text:
+                    uv_resolved_dependencies = False
+
+                if rtn != 0:
+                    print("Error: Linting failed.")
+                    if uv_resolved_dependencies:
+                        sys.exit(1)
+                    if args.no_interactive:
                         print(
-                            f"Warning: Lint process timed out after {timeout_duration} seconds of no output"
+                            "Non-interactive mode: automatically running 'uv pip install -e . --refresh'"
                         )
-                        proc.kill()
-                        proc.wait()
-                        print("Error: Linting process hung and was terminated.")
+                        answer_yes = True
+                    else:
+                        answer_yes = get_answer_yes_or_no(
+                            "'uv pip install -e . --refresh'?",
+                            "y",
+                        )
+                        if not answer_yes:
+                            print("Aborting.")
+                            sys.exit(1)
+                    for _ in range(3):
+                        refresh_rtn = _exec(
+                            "uv pip install -e . --refresh", bash=True, die=False
+                        )
+                        if refresh_rtn == 0:
+                            break
+                    else:
+                        print("Error: uv pip install -e . --refresh failed.")
                         sys.exit(1)
-
-                    # Try to read a line
-                    try:
-                        line = proc.stdout.readline()
-                        if line:
-                            # Since we're using text=True, line is already a string
-                            linestr = line.strip()
-                            print(linestr)
-                            last_output_time = time.time()  # Reset timeout on output
-                            if (
-                                "No solution found when resolving dependencies"
-                                in linestr
-                            ):
-                                uv_resolved_dependencies = False
-                        else:
-                            # No line available, sleep briefly and continue
-                            time.sleep(0.1)
-                    except Exception as e:
-                        logger.error(f"Error reading lint output: {e}")
-                        break
-
-            proc.wait()
-            if proc.returncode != 0:
-                print("Error: Linting failed.")
-                if uv_resolved_dependencies:
-                    sys.exit(1)
-                if args.no_interactive:
-                    print(
-                        "Non-interactive mode: automatically running 'uv pip install -e . --refresh'"
-                    )
-                    answer_yes = True
-                else:
-                    answer_yes = get_answer_yes_or_no(
-                        "'uv pip install -e . --refresh'?",
-                        "y",
-                    )
-                    if not answer_yes:
-                        print("Aborting.")
-                        sys.exit(1)
-                for _ in range(3):
-                    refresh_rtn = _exec(
-                        "uv pip install -e . --refresh", bash=True, die=False
-                    )
-                    if refresh_rtn == 0:
-                        break
-                else:
-                    print("Error: uv pip install -e . --refresh failed.")
-                    sys.exit(1)
+            except KeyboardInterrupt:
+                logger.info("Linting interrupted by user")
+                _thread.interrupt_main()
+                sys.exit(1)
+            except Exception as e:
+                logger.error(f"Error during linting: {e}")
+                print(f"Linting error: {e}", file=sys.stderr)
+                sys.exit(1)
         if not args.no_test and os.path.exists("./test"):
             test_cmd = "./test" + (" --verbose" if verbose else "")
             test_cmd = _to_exec_str(test_cmd, bash=True)
 
             print(f"Running: {test_cmd}")
-            test_proc = subprocess.Popen(
-                test_cmd,
-                shell=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                encoding="utf-8",
-                errors="replace",  # Replace unmappable characters
-                bufsize=1,  # Line buffered
-            )
-
-            # Stream test output with 60-second timeout between lines
-            with test_proc:
-                assert test_proc.stdout is not None
-                timeout_duration = 60  # 60 seconds of silence before timeout
-                last_output_time = time.time()
-
-                while True:
-                    # Check if process has finished
-                    if test_proc.poll() is not None:
-                        break
-
-                    # Check for timeout (no output for 60 seconds)
-                    if time.time() - last_output_time > timeout_duration:
-                        print(
-                            f"Warning: Test process timed out after {timeout_duration} seconds of no output"
-                        )
-                        test_proc.kill()
-                        test_proc.wait()
-                        print("Error: Test process hung and was terminated.")
-                        sys.exit(1)
-
-                    # Try to read a line
-                    try:
-                        line = test_proc.stdout.readline()
-                        if line:
-                            # Since we're using text=True, line is already a string
-                            linestr = line.strip()
-                            print(linestr)
-                            last_output_time = time.time()  # Reset timeout on output
-                        else:
-                            # No line available, sleep briefly and continue
-                            time.sleep(0.1)
-                    except Exception as e:
-                        logger.error(f"Error reading test output: {e}")
-                        break
-
-            test_proc.wait()
-            if test_proc.returncode != 0:
-                print("Error: Tests failed.")
+            try:
+                # Run tests with 300 second (5 minute) timeout
+                rtn = run_command_with_timeout([test_cmd], timeout=300.0, shell=True)
+                if rtn != 0:
+                    print("Error: Tests failed.")
+                    sys.exit(1)
+            except KeyboardInterrupt:
+                logger.info("Testing interrupted by user")
+                _thread.interrupt_main()
+                sys.exit(1)
+            except Exception as e:
+                logger.error(f"Error during testing: {e}")
+                print(f"Testing error: {e}", file=sys.stderr)
                 sys.exit(1)
         _exec("git add .", bash=False)
         _ai_commit_or_prompt_for_commit_message(
