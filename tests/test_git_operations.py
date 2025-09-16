@@ -189,7 +189,7 @@ class GitOperationsTester(unittest.TestCase):
         sys.path.insert(0, src_path)
 
         try:
-            from codeup.main import find_git_directory
+            from codeup.git_utils import find_git_directory
 
             # Should find current directory as git repo
             git_dir = find_git_directory()

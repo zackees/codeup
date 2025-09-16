@@ -180,7 +180,7 @@ class UtilitiesTester(unittest.TestCase):
         try:
             import subprocess
 
-            from codeup.main import find_git_directory
+            from codeup.git_utils import find_git_directory
 
             # Test git availability (should be available in test environment)
             result = subprocess.run(["git", "--version"], capture_output=True)
