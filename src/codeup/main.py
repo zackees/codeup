@@ -13,7 +13,6 @@ import _thread
 import argparse
 import logging
 import os
-import subprocess
 import sys
 import threading
 import warnings
@@ -24,7 +23,11 @@ from typing import List, Tuple, Union
 
 import openai
 
-from codeup.running_process import run_command_with_streaming, run_command_with_timeout
+from codeup.running_process import (
+    run_command_with_streaming,
+    run_command_with_streaming_and_capture,
+    run_command_with_timeout,
+)
 
 # Logger will be configured in main() based on --log flag
 logger = logging.getLogger(__name__)
@@ -61,6 +64,10 @@ def input_with_timeout(prompt: str, timeout_seconds: int = 300) -> str:
     def get_input():
         try:
             result.append(input(prompt))
+        except KeyboardInterrupt:
+            import _thread
+
+            _thread.interrupt_main()
         except Exception as e:
             exception_holder.append(e)
 
@@ -90,6 +97,10 @@ def input_with_timeout(prompt: str, timeout_seconds: int = 300) -> str:
 # Force UTF-8 encoding for proper international character handling
 if sys.platform == "win32":
     import codecs
+
+    # Force UTF-8 encoding for all subprocess operations on Windows
+    os.environ["PYTHONIOENCODING"] = "utf-8"
+    os.environ["PYTHONLEGACYWINDOWSSTDIO"] = "0"
 
     if sys.stdout.encoding != "utf-8":
         sys.stdout = codecs.getwriter("utf-8")(sys.stdout.buffer, "strict")
@@ -130,26 +141,86 @@ if __name__ == "__main__":
         print("This is not a uv project.")
 
 
-def _to_exec_str(cmd: str, bash: bool) -> str:
+def _find_bash_on_windows() -> str:
+    """Find bash executable on Windows by checking common locations.
+
+    Prioritizes Git Bash over WSL bash for better script compatibility.
+    """
+    # Git Bash locations (prioritized for better script compatibility)
+    git_bash_paths = [
+        r"C:\Program Files\Git\bin\bash.exe",
+        r"C:\Program Files\Git\usr\bin\bash.exe",
+        r"C:\Program Files (x86)\Git\bin\bash.exe",
+        r"C:\Program Files (x86)\Git\usr\bin\bash.exe",
+        r"C:\Git\bin\bash.exe",
+        r"C:\Git\usr\bin\bash.exe",
+    ]
+
+    # Check Git Bash locations first
+    for path in git_bash_paths:
+        if Path(path).exists():
+            logger.debug(f"Found Git Bash at: {path}")
+            return path
+
+    # Check if bash is in PATH (but exclude WSL if we can detect it)
+    bash_path = which("bash")
+    if bash_path and "System32" not in bash_path:
+        logger.debug(f"Found bash in PATH: {bash_path}")
+        return bash_path
+
+    # Other bash locations (MSYS2, etc.)
+    other_bash_paths = [
+        r"C:\msys64\usr\bin\bash.exe",
+        r"C:\msys32\usr\bin\bash.exe",
+    ]
+
+    for path in other_bash_paths:
+        if Path(path).exists():
+            logger.debug(f"Found MSYS2 bash at: {path}")
+            return path
+
+    # WSL bash as last resort
+    wsl_bash_path = r"C:\Windows\System32\bash.exe"
+    if Path(wsl_bash_path).exists():
+        logger.debug(f"Using WSL bash as fallback: {wsl_bash_path}")
+        return wsl_bash_path
+
+    # Final fallback
+    logger.warning("No bash executable found, using 'bash' as fallback")
+    return "bash"
+
+
+def _to_exec_args(cmd: str, bash: bool) -> List[str]:
+    """Convert command string to properly escaped argument list for subprocess.
+
+    Args:
+        cmd: The command string to execute
+        bash: Whether to run via bash shell
+
+    Returns:
+        List of strings suitable for subprocess execution
+    """
     if bash and sys.platform == "win32":
-        return f"bash -c '{cmd}'"
-    return cmd
+        bash_exe = _find_bash_on_windows()
+        # Use list of args to avoid shell injection
+        return [bash_exe, "-c", cmd]
+    else:
+        # For non-bash commands, split properly using shlex
+        import shlex
+        return shlex.split(cmd)
 
 
 def _safe_git_commit(message: str) -> int:
     """Safely execute git commit with proper UTF-8 encoding."""
     try:
         print(f'Running: git commit -m "{message}"')
-        result = subprocess.run(
+        exit_code, _, _ = run_command_with_streaming_and_capture(
             ["git", "commit", "-m", message],
-            encoding="utf-8",
-            errors="replace",
-            text=True,
             capture_output=False,  # Let output go to console directly
         )
-        if result.returncode != 0:
-            print(f"Error: git commit returned {result.returncode}")
-        return result.returncode
+        if exit_code != 0:
+            print(f"Error: git commit returned {exit_code}")
+        return exit_code
     except KeyboardInterrupt:
         logger.info("_safe_git_commit interrupted by user")
         _thread.interrupt_main()
@@ -162,18 +233,28 @@ def _safe_git_commit(message: str) -> int:
 
 def _exec(cmd: str, bash: bool, die=True) -> int:
     print(f"Running: {cmd}")
+    original_cmd = cmd
     cmd = _to_exec_str(cmd, bash)
+
+    logger.debug(f"Original command: {original_cmd}")
+    logger.debug(f"Transformed command: {cmd}")
+    logger.debug(f"Bash mode: {bash}")
 
     try:
         # Use our new streaming process management for better reliability
         if bash:
-            # For bash commands, use shell=True
-            rtn = run_command_with_streaming([cmd], shell=True)
+            # For bash commands on Windows, split the command properly for subprocess
+            import shlex
+
+            cmd_parts = shlex.split(cmd)
+            logger.debug(f"Command parts for bash: {cmd_parts}")
+            rtn = run_command_with_streaming(cmd_parts, shell=True)
         else:
             # For non-bash commands, split the command properly
             import shlex
 
             cmd_parts = shlex.split(cmd)
+            logger.debug(f"Command parts for non-bash: {cmd_parts}")
             rtn = run_command_with_streaming(cmd_parts)
     except KeyboardInterrupt:
         logger.info("_exec interrupted by user")
@@ -278,7 +359,7 @@ def configure_logging(enable_file_logging: bool) -> None:
         handlers.append(logging.FileHandler("codeup.log"))
 
     logging.basicConfig(
-        level=logging.WARNING,  # Changed to WARNING to reduce verbosity
+        level=logging.DEBUG,  # Changed to DEBUG for troubleshooting
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         handlers=handlers,
         force=True,  # Override any existing configuration
@@ -531,29 +612,29 @@ def _generate_ai_commit_message() -> Union[str, None]:
         logger.info("Getting git diff for commit message generation")
         try:
             # Check for staged changes first
-            staged_result = subprocess.run(
+            exit_code, stdout, stderr = run_command_with_streaming_and_capture(
                 ["git", "diff", "--cached"],
-                capture_output=True,
-                text=True,
+                quiet=True,
                 check=True,
-                encoding="utf-8",
             )
-            diff_text = staged_result.stdout.strip()
+            diff_text = stdout.strip()
 
             if not diff_text:
                 # No staged changes, get regular diff
                 logger.info("No staged changes, getting regular diff")
-                result = subprocess.run(
+                exit_code, stdout, stderr = run_command_with_streaming_and_capture(
                     ["git", "diff"],
-                    capture_output=True,
-                    text=True,
+                    quiet=True,
                     check=True,
-                    encoding="utf-8",
                 )
-                diff_text = result.stdout.strip()
+                diff_text = stdout.strip()
                 if not diff_text:
                     logger.warning("No changes found in git diff")
                     return None
+        except KeyboardInterrupt:
+            logger.info("git diff interrupted by user")
+            _thread.interrupt_main()
+            return None
         except Exception as e:
             logger.error(f"Error getting git diff: {e}")
             return None
@@ -609,6 +690,10 @@ Respond with only the commit message, nothing else."""
                 else:
                     logger.warning("OpenAI API returned empty response")
 
+            except KeyboardInterrupt:
+                logger.info("OpenAI API call interrupted by user")
+                _thread.interrupt_main()
+                return None
             except Exception as e:
                 # Extract cleaner error message from OpenAI exceptions
                 error_msg = str(e)
@@ -752,35 +837,31 @@ def _ai_commit_or_prompt_for_commit_message(
 
 def get_git_status() -> str:
     """Get git status output."""
-    result = subprocess.run(
-        ["git", "status"], capture_output=True, text=True, check=True, encoding="utf-8"
+    exit_code, stdout, stderr = run_command_with_streaming_and_capture(
+        ["git", "status"], quiet=True, check=True
     )
-    return result.stdout
+    return stdout
 
 
 def has_changes_to_commit() -> bool:
     """Check if there are any changes (staged, unstaged, or untracked) to commit."""
     try:
         # Check for staged changes
-        staged_result = subprocess.run(
+        exit_code, stdout, stderr = run_command_with_streaming_and_capture(
             ["git", "diff", "--cached", "--name-only"],
-            capture_output=True,
-            text=True,
+            quiet=True,
             check=True,
-            encoding="utf-8",
         )
-        if staged_result.stdout.strip():
+        if stdout.strip():
             return True
 
         # Check for unstaged changes
-        unstaged_result = subprocess.run(
+        exit_code, stdout, stderr = run_command_with_streaming_and_capture(
             ["git", "diff", "--name-only"],
-            capture_output=True,
-            text=True,
+            quiet=True,
             check=True,
-            encoding="utf-8",
         )
-        if unstaged_result.stdout.strip():
+        if stdout.strip():
             return True
 
         # Check for untracked files
@@ -801,28 +882,24 @@ def has_changes_to_commit() -> bool:
 
 def get_untracked_files() -> List[str]:
     """Get list of untracked files."""
-    result = subprocess.run(
+    exit_code, stdout, stderr = run_command_with_streaming_and_capture(
         ["git", "ls-files", "--others", "--exclude-standard"],
-        capture_output=True,
-        text=True,
+        quiet=True,
         check=True,
-        encoding="utf-8",
     )
-    return [f.strip() for f in result.stdout.splitlines() if f.strip()]
+    return [f.strip() for f in stdout.splitlines() if f.strip()]
 
 
 def get_main_branch() -> str:
     """Get the main branch name (main, master, etc.)."""
     try:
         # Try to get the default branch from remote
-        result = subprocess.run(
+        exit_code, stdout, stderr = run_command_with_streaming_and_capture(
             ["git", "symbolic-ref", "refs/remotes/origin/HEAD"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
+            quiet=True,
         )
-        if result.returncode == 0:
-            return result.stdout.strip().split("/")[-1]
+        if exit_code == 0:
+            return stdout.strip().split("/")[-1]
     except KeyboardInterrupt:
         logger.info("get_main_branch interrupted by user")
         _thread.interrupt_main()
@@ -834,13 +911,11 @@ def get_main_branch() -> str:
     # Fallback: check common branch names
     for branch in ["main", "master"]:
         try:
-            result = subprocess.run(
+            exit_code, stdout, stderr = run_command_with_streaming_and_capture(
                 ["git", "rev-parse", "--verify", f"origin/{branch}"],
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
+                quiet=True,
             )
-            if result.returncode == 0:
+            if exit_code == 0:
                 return branch
         except KeyboardInterrupt:
             logger.info("get_main_branch loop interrupted by user")
@@ -855,35 +930,30 @@ def get_main_branch() -> str:
 
 def get_current_branch() -> str:
     """Get the current branch name."""
-    result = subprocess.run(
+    exit_code, stdout, stderr = run_command_with_streaming_and_capture(
         ["git", "branch", "--show-current"],
-        capture_output=True,
-        text=True,
+        quiet=True,
         check=True,
-        encoding="utf-8",
     )
-    return result.stdout.strip()
+    return stdout.strip()
 
 
 def check_rebase_needed(main_branch: str) -> bool:
     """Check if current branch is behind the remote main branch."""
     try:
-        remote_hash = subprocess.run(
+        exit_code, stdout, stderr = run_command_with_streaming_and_capture(
             ["git", "rev-parse", f"origin/{main_branch}"],
-            capture_output=True,
-            text=True,
+            quiet=True,
             check=True,
-            encoding="utf-8",
-        ).stdout.strip()
+        )
+        remote_hash = stdout.strip()
 
-        # Check if we're behind
-        merge_base = subprocess.run(
+        exit_code, stdout, stderr = run_command_with_streaming_and_capture(
             ["git", "merge-base", "HEAD", f"origin/{main_branch}"],
-            capture_output=True,
-            text=True,
+            quiet=True,
             check=True,
-            encoding="utf-8",
-        ).stdout.strip()
+        )
+        merge_base = stdout.strip()
 
         return merge_base != remote_hash
 
@@ -907,21 +977,19 @@ def attempt_safe_rebase(main_branch: str) -> Tuple[bool, bool]:
     """
     try:
         # Attempt the actual rebase
-        result = subprocess.run(
+        exit_code, stdout, stderr = run_command_with_streaming_and_capture(
             ["git", "rebase", f"origin/{main_branch}"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
+            quiet=True,
         )
 
-        if result.returncode == 0:
+        if exit_code == 0:
             # Rebase succeeded
             logger.info(f"Successfully rebased onto origin/{main_branch}")
             return True, False
         else:
             # Rebase failed, check if it's due to conflicts
-            stderr_lower = result.stderr.lower()
-            stdout_lower = result.stdout.lower()
+            stderr_lower = stderr.lower()
+            stdout_lower = stdout.lower()
 
             if (
                 "conflict" in stderr_lower
@@ -931,25 +999,25 @@ def attempt_safe_rebase(main_branch: str) -> Tuple[bool, bool]:
             ):
                 logger.info("Rebase failed due to conflicts, aborting rebase")
                 # Abort the rebase to return to clean state
-                abort_result = subprocess.run(
-                    ["git", "rebase", "--abort"],
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
+                abort_exit_code, abort_stdout, abort_stderr = (
+                    run_command_with_streaming_and_capture(
+                        ["git", "rebase", "--abort"],
+                        quiet=True,
+                    )
                 )
 
-                if abort_result.returncode != 0:
-                    logger.error(f"Failed to abort rebase: {abort_result.stderr}")
+                if abort_exit_code != 0:
+                    logger.error(f"Failed to abort rebase: {abort_stderr}")
                     print(
-                        f"Error: Failed to abort rebase: {abort_result.stderr}",
+                        f"Error: Failed to abort rebase: {abort_stderr}",
                         file=sys.stderr,
                     )
 
                 return False, True
             else:
                 # Rebase failed for other reasons
-                logger.error(f"Rebase failed: {result.stderr}")
-                print(f"Rebase failed: {result.stderr}", file=sys.stderr)
+                logger.error(f"Rebase failed: {stderr}")
+                print(f"Rebase failed: {stderr}", file=sys.stderr)
                 return False, False
 
     except KeyboardInterrupt:
@@ -1014,19 +1082,17 @@ def safe_push() -> bool:
     try:
         # First, try a normal push
         print("Attempting to push to remote...")
-        result = subprocess.run(
+        exit_code, stdout, stderr = run_command_with_streaming_and_capture(
             ["git", "push"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
+            quiet=True,
         )
 
-        if result.returncode == 0:
+        if exit_code == 0:
             print("Successfully pushed to remote")
             return True
 
         # If normal push failed, check if it's due to non-fast-forward
-        stderr_output = result.stderr.lower()
+        stderr_output = stderr.lower()
 
         if "non-fast-forward" in stderr_output or "rejected" in stderr_output:
             print(
@@ -1040,24 +1106,22 @@ def safe_push() -> bool:
             if safe_rebase_try():
                 # Rebase succeeded, try push again
                 print("Rebase successful, attempting push again...")
-                result = subprocess.run(
+                exit_code, stdout, stderr = run_command_with_streaming_and_capture(
                     ["git", "push"],
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
+                    quiet=True,
                 )
 
-                if result.returncode == 0:
+                if exit_code == 0:
                     print("Successfully pushed to remote after rebase")
                     return True
                 else:
-                    print(f"Push failed after rebase: {result.stderr}")
+                    print(f"Push failed after rebase: {stderr}")
                     return False
             else:
                 # Rebase failed or not safe, provide manual instructions
                 return False
         else:
-            print(f"Push failed: {result.stderr}")
+            print(f"Push failed: {stderr}")
             return False
 
     except KeyboardInterrupt:
@@ -1072,11 +1136,6 @@ def safe_push() -> bool:
 
 def main() -> int:
     """Run git status, lint, test, add, and commit."""
-
-    # Force UTF-8 encoding for all subprocess operations on Windows
-    os.environ["PYTHONIOENCODING"] = "utf-8"
-    if sys.platform == "win32":
-        os.environ["PYTHONLEGACYWINDOWSSTDIO"] = "0"
 
     args = _parse_args()
     configure_logging(args.log)
@@ -1176,6 +1235,7 @@ def main() -> int:
             try:
                 # Capture output to check for dependency resolution issues
                 import io
+                import shlex
 
                 # Redirect stdout temporarily to capture output
                 original_stdout = sys.stdout
@@ -1196,8 +1256,12 @@ def main() -> int:
 
                 sys.stdout = TeeOutput(original_stdout, output_capture)
 
+                # Split the command properly for subprocess
+                cmd_parts = shlex.split(cmd)
+                logger.debug(f"Running lint with command parts: {cmd_parts}")
+
                 # Run with 300 second (5 minute) timeout
-                rtn = run_command_with_timeout([cmd], timeout=300.0, shell=True)
+                rtn = run_command_with_timeout(cmd_parts, timeout=300.0, shell=True)
 
                 # Restore stdout and check output
                 sys.stdout = original_stdout
@@ -1247,7 +1311,7 @@ def main() -> int:
             print(f"Running: {test_cmd}")
             try:
                 # Run tests with 300 second (5 minute) timeout
-                rtn = run_command_with_timeout([test_cmd], timeout=300.0, shell=True)
+                rtn = run_command_with_timeout(test_cmd, timeout=300.0, shell=True)
                 if rtn != 0:
                     print("Error: Tests failed.")
                     sys.exit(1)

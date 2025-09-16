@@ -74,10 +74,14 @@ class UtilitiesTester(unittest.TestCase):
             if sys.platform == "win32":
                 cmd = "echo hello"
                 result = _to_exec_str(cmd, bash=True)
-                self.assertEqual(
-                    result,
-                    "bash -c 'echo hello'",
-                    "Should wrap bash commands on Windows",
+                # Should use the full path to Git Bash and wrap the command
+                self.assertTrue(
+                    result.endswith(' -c "echo hello"'),
+                    "Should wrap bash commands on Windows with proper executable",
+                )
+                self.assertTrue(
+                    "bash.exe" in result,
+                    "Should use bash.exe on Windows",
                 )
 
                 result = _to_exec_str(cmd, bash=False)

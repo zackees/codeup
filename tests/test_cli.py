@@ -2,9 +2,9 @@
 Unit test file.
 """
 
-import os
-import sys
 import unittest
+
+from codeup.running_process import run_command_with_streaming_and_capture
 
 COMMAND = "codeup"
 
@@ -15,16 +15,11 @@ class MainTester(unittest.TestCase):
     def test_imports(self) -> None:
         """Test command line interface (CLI)."""
         # Test that codeup exits with code 1 when no changes to commit (expected behavior)
-        rtn = os.system(COMMAND)
-        # os.system() returns the exit code shifted left by 8 bits on Unix systems
-        # On Windows, it returns the exit code directly
-        if sys.platform == "win32":
-            expected_exit_code = 1
-        else:
-            expected_exit_code = 256  # 1 << 8
-        self.assertEqual(
-            expected_exit_code, rtn
-        )  # codeup should exit 1 when no changes to commit
+        exit_code, stdout, stderr = run_command_with_streaming_and_capture(
+            [COMMAND], quiet=True
+        )
+        # codeup should exit 1 when no changes to commit
+        self.assertEqual(1, exit_code)
 
 
 if __name__ == "__main__":

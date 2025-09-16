@@ -71,32 +71,32 @@ The project uses a multi-tier configuration system for API keys:
 
 ## Exception Handling Rules
 
-1. **General Exceptions**: All general exception handlers must log the error before handling it.
+1. **KeyboardInterrupt Priority**: When handling exceptions, KeyboardInterrupt must always be handled first before any general exception handlers.
+   - Use specific `except KeyboardInterrupt:` blocks before `except Exception:`
+   - In KeyboardInterrupt handlers, call `import _thread; _thread.interrupt_main()`
+
+2. **General Exceptions**: All general exception handlers must log the error before handling it.
    - Use `logger.error()`, `logger.warning()`, or appropriate logging level
    - Include context about what operation failed
-
-2. **Keyboard Interrupts**: KeyboardInterrupt exceptions must be explicitly handled using:
-   ```python
-   import _thread
-   _thread.interrupt_main()
-   ```
 
 ### Examples
 
 ```python
-# Good - logs the error
+# Good - KeyboardInterrupt handled first, then general exceptions
 try:
     risky_operation()
+except KeyboardInterrupt:
+    import _thread
+    _thread.interrupt_main()
 except Exception as e:
     logger.error(f"Operation failed: {e}")
     handle_gracefully()
 
-# Good - specific keyboard interrupt handling
+# Bad - KeyboardInterrupt caught by general Exception handler
 try:
-    long_running_operation()
-except KeyboardInterrupt:
-    import _thread
-    _thread.interrupt_main()
+    risky_operation()
+except Exception as e:  # This will catch KeyboardInterrupt too!
+    logger.error(f"Operation failed: {e}")
 ```
 
 ## Testing Structure
