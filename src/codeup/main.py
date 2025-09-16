@@ -10,22 +10,37 @@ Runs:
 """
 
 import _thread
-import argparse
 import logging
 import os
 import sys
 import threading
 import warnings
-from dataclasses import dataclass
 from pathlib import Path
 from shutil import which
-from typing import List, Tuple, Union
+from typing import List, Union
 
 import openai
 
+from codeup.args import Args
+from codeup.git_utils import (
+    attempt_rebase,
+    check_rebase_needed,
+    find_git_directory,
+    get_current_branch,
+    get_git_diff,
+    get_git_diff_cached,
+    get_git_status,
+    get_main_branch,
+    get_untracked_files,
+    git_add_all,
+    git_add_file,
+    git_fetch,
+    git_push,
+    has_changes_to_commit,
+    safe_git_commit,
+)
 from codeup.running_process import (
     run_command_with_streaming,
-    run_command_with_streaming_and_capture,
     run_command_with_timeout,
 )
 
@@ -233,27 +248,6 @@ def _to_exec_args(cmd: str, bash: bool) -> List[str]:
         return shlex.split(cmd)
 
 
-def _safe_git_commit(message: str) -> int:
-    """Safely execute git commit with proper UTF-8 encoding."""
-    try:
-        print(f'Running: git commit -m "{message}"')
-        exit_code, _, _ = run_command_with_streaming_and_capture(
-            ["git", "commit", "-m", message],
-            capture_output=False,  # Let output go to console directly
-        )
-        if exit_code != 0:
-            print(f"Error: git commit returned {exit_code}")
-        return exit_code
-    except KeyboardInterrupt:
-        logger.info("_safe_git_commit interrupted by user")
-        _thread.interrupt_main()
-        return 130
-    except Exception as e:
-        logger.error(f"Error in _safe_git_commit: {e}")
-        print(f"Error executing git commit: {e}", file=sys.stderr)
-        return 1
-
-
 def _exec(cmd: str, bash: bool, die=True) -> int:
     print(f"Running: {cmd}")
     original_cmd = cmd
@@ -293,19 +287,6 @@ def _exec(cmd: str, bash: bool, die=True) -> int:
         if die:
             sys.exit(1)
     return rtn
-
-
-def find_git_directory() -> str:
-    """Traverse up to 3 levels to find a directory with a .git folder."""
-    current_dir = os.getcwd()
-    for _ in range(3):
-        if os.path.exists(os.path.join(current_dir, ".git")):
-            return current_dir
-        parent_dir = os.path.dirname(current_dir)
-        if current_dir == parent_dir:
-            break
-        current_dir = parent_dir
-    return ""
 
 
 def check_environment() -> Path:
@@ -390,145 +371,6 @@ def configure_logging(enable_file_logging: bool) -> None:
 
     # Reduce verbosity of third-party loggers
     logging.getLogger("httpx").setLevel(logging.WARNING)
-
-
-@dataclass
-class Args:
-    repo: Union[str, None]
-    no_push: bool
-    verbose: bool
-    no_test: bool
-    no_lint: bool
-    publish: bool
-    no_autoaccept: bool
-    message: Union[str, None]
-    no_rebase: bool
-    no_interactive: bool
-    log: bool
-    just_ai_commit: bool
-    set_key_anthropic: Union[str, None]
-    set_key_openai: Union[str, None]
-
-    def __post_init__(self) -> None:
-        assert isinstance(
-            self.repo, (str, type(None))
-        ), f"Expected str, got {type(self.repo)}"
-        assert isinstance(
-            self.no_push, bool
-        ), f"Expected bool, got {type(self.no_push)}"
-        assert isinstance(
-            self.verbose, bool
-        ), f"Expected bool, got {type(self.verbose)}"
-        assert isinstance(
-            self.no_test, bool
-        ), f"Expected bool, got {type(self.no_test)}"
-        assert isinstance(
-            self.no_lint, bool
-        ), f"Expected bool, got {type(self.no_lint)}"
-        assert isinstance(
-            self.publish, bool
-        ), f"Expected bool, got {type(self.publish)}"
-        assert isinstance(
-            self.no_autoaccept, bool
-        ), f"Expected bool, got {type(self.no_autoaccept)}"
-        assert isinstance(
-            self.message, (str, type(None))
-        ), f"Expected str, got {type(self.message)}"
-        assert isinstance(
-            self.no_rebase, bool
-        ), f"Expected bool, got {type(self.no_rebase)}"
-        assert isinstance(
-            self.no_interactive, bool
-        ), f"Expected bool, got {type(self.no_interactive)}"
-        assert isinstance(self.log, bool), f"Expected bool, got {type(self.log)}"
-        assert isinstance(
-            self.just_ai_commit, bool
-        ), f"Expected bool, got {type(self.just_ai_commit)}"
-        assert isinstance(
-            self.set_key_anthropic, (str, type(None))
-        ), f"Expected (str, type(None)), got {type(self.set_key_anthropic)}"
-        assert isinstance(
-            self.set_key_openai, (str, type(None))
-        ), f"Expected (str, type(None)), got {type(self.set_key_openai)}"
-
-
-def _parse_args() -> Args:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("repo", help="Path to the repo to summarize", nargs="?")
-    parser.add_argument(
-        "--no-push", help="Do not push after successful commit", action="store_true"
-    )
-    parser.add_argument(
-        "--verbose",
-        help="Passes the verbose flag to the linter and tester",
-        action="store_true",
-    )
-    parser.add_argument("--publish", "-p", help="Publish the repo", action="store_true")
-    parser.add_argument(
-        "--no-test", "-nt", help="Do not run tests", action="store_true"
-    )
-    parser.add_argument("--no-lint", help="Do not run linter", action="store_true")
-    parser.add_argument(
-        "--no-autoaccept",
-        "-na",
-        help="Do not auto-accept commit messages from AI",
-        action="store_true",
-    )
-    parser.add_argument(
-        "-m",
-        "--message",
-        help="Commit message (bypasses AI commit generation)",
-        type=str,
-    )
-    parser.add_argument(
-        "--no-rebase",
-        help="Do not attempt to rebase before pushing",
-        action="store_true",
-    )
-    parser.add_argument(
-        "--no-interactive",
-        help="Fail if auto commit message generation fails (non-interactive mode)",
-        action="store_true",
-    )
-    parser.add_argument(
-        "--log",
-        help="Enable logging to codeup.log file",
-        action="store_true",
-    )
-    parser.add_argument(
-        "--just-ai-commit",
-        help="Skip linting and testing, just run the automatic AI commit generator",
-        action="store_true",
-    )
-    parser.add_argument(
-        "--set-key-anthropic",
-        type=str,
-        help="Set Anthropic API key and exit",
-    )
-    parser.add_argument(
-        "--set-key-openai",
-        type=str,
-        help="Set OpenAI API key and exit",
-    )
-    tmp = parser.parse_args()
-
-    out: Args = Args(
-        repo=tmp.repo,
-        no_push=tmp.no_push,
-        verbose=tmp.verbose,
-        no_test=tmp.no_test,
-        no_lint=tmp.no_lint,
-        publish=tmp.publish,
-        no_autoaccept=tmp.no_autoaccept,
-        message=tmp.message,
-        no_rebase=tmp.no_rebase,
-        no_interactive=tmp.no_interactive,
-        log=tmp.log,
-        just_ai_commit=tmp.just_ai_commit,
-        set_key_anthropic=tmp.set_key_anthropic,
-        set_key_openai=tmp.set_key_openai,
-    )
-    return out
 
 
 def _publish() -> None:
@@ -633,34 +475,15 @@ def _generate_ai_commit_message() -> Union[str, None]:
 
         # Get staged diff
         logger.info("Getting git diff for commit message generation")
-        try:
-            # Check for staged changes first
-            exit_code, stdout, stderr = run_command_with_streaming_and_capture(
-                ["git", "diff", "--cached"],
-                quiet=True,
-                check=True,
-            )
-            diff_text = stdout.strip()
+        diff_text = get_git_diff_cached()
 
+        if not diff_text:
+            # No staged changes, get regular diff
+            logger.info("No staged changes, getting regular diff")
+            diff_text = get_git_diff()
             if not diff_text:
-                # No staged changes, get regular diff
-                logger.info("No staged changes, getting regular diff")
-                exit_code, stdout, stderr = run_command_with_streaming_and_capture(
-                    ["git", "diff"],
-                    quiet=True,
-                    check=True,
-                )
-                diff_text = stdout.strip()
-                if not diff_text:
-                    logger.warning("No changes found in git diff")
-                    return None
-        except KeyboardInterrupt:
-            logger.info("git diff interrupted by user")
-            _thread.interrupt_main()
-            return None
-        except Exception as e:
-            logger.error(f"Error getting git diff: {e}")
-            return None
+                logger.warning("No changes found in git diff")
+                return None
 
         logger.info(f"Got diff, length: {len(diff_text)}")
 
@@ -798,7 +621,7 @@ def _opencommit_or_prompt_for_commit_message(
         print(f"Generated commit message: {ai_message}")
         # Always auto-accept AI-generated messages when they succeed
         print("Auto-accepting AI-generated commit message")
-        _safe_git_commit(ai_message)
+        safe_git_commit(ai_message)
         return
     elif no_interactive:
         # In non-interactive mode, fail if AI commit generation fails
@@ -827,17 +650,17 @@ def _opencommit_or_prompt_for_commit_message(
         )
         print("Cannot get commit message input in non-interactive mode")
         print("Using generic commit message as fallback...")
-        _safe_git_commit("chore: automated commit (AI unavailable)")
+        safe_git_commit("chore: automated commit (AI unavailable)")
         return
 
     try:
         msg = input_with_timeout("Commit message: ", timeout_seconds=300)
-        _safe_git_commit(msg)
+        safe_git_commit(msg)
     except (EOFError, InputTimeoutError) as e:
         logger.warning(f"Manual commit message input failed: {e}")
         print(f"Commit message input failed or timed out ({type(e).__name__})")
         print("Using generic commit message as fallback...")
-        _safe_git_commit("chore: automated commit (input failed)")
+        safe_git_commit("chore: automated commit (input failed)")
         return
 
 
@@ -847,7 +670,7 @@ def _ai_commit_or_prompt_for_commit_message(
     """Generate commit message using AI or prompt for manual input."""
     if message:
         # Use provided commit message directly
-        _safe_git_commit(message)
+        safe_git_commit(message)
     else:
         # Use AI or interactive commit
         _opencommit_or_prompt_for_commit_message(
@@ -856,201 +679,6 @@ def _ai_commit_or_prompt_for_commit_message(
 
 
 # demo help message
-
-
-def get_git_status() -> str:
-    """Get git status output."""
-    exit_code, stdout, stderr = run_command_with_streaming_and_capture(
-        ["git", "status"], quiet=True, check=True
-    )
-    return stdout
-
-
-def has_changes_to_commit() -> bool:
-    """Check if there are any changes (staged, unstaged, or untracked) to commit."""
-    try:
-        # Check for staged changes
-        exit_code, stdout, stderr = run_command_with_streaming_and_capture(
-            ["git", "diff", "--cached", "--name-only"],
-            quiet=True,
-            check=True,
-        )
-        if stdout.strip():
-            return True
-
-        # Check for unstaged changes
-        exit_code, stdout, stderr = run_command_with_streaming_and_capture(
-            ["git", "diff", "--name-only"],
-            quiet=True,
-            check=True,
-        )
-        if stdout.strip():
-            return True
-
-        # Check for untracked files
-        untracked_files = get_untracked_files()
-        if untracked_files:
-            return True
-
-        return False
-
-    except KeyboardInterrupt:
-        logger.info("has_changes_to_commit interrupted by user")
-        _thread.interrupt_main()
-        return False
-    except Exception as e:
-        logger.error(f"Error checking for changes: {e}")
-        return False
-
-
-def get_untracked_files() -> List[str]:
-    """Get list of untracked files."""
-    exit_code, stdout, stderr = run_command_with_streaming_and_capture(
-        ["git", "ls-files", "--others", "--exclude-standard"],
-        quiet=True,
-        check=True,
-    )
-    return [f.strip() for f in stdout.splitlines() if f.strip()]
-
-
-def get_main_branch() -> str:
-    """Get the main branch name (main, master, etc.)."""
-    try:
-        # Try to get the default branch from remote
-        exit_code, stdout, stderr = run_command_with_streaming_and_capture(
-            ["git", "symbolic-ref", "refs/remotes/origin/HEAD"],
-            quiet=True,
-        )
-        if exit_code == 0:
-            return stdout.strip().split("/")[-1]
-    except KeyboardInterrupt:
-        logger.info("get_main_branch interrupted by user")
-        _thread.interrupt_main()
-        return "main"
-    except Exception as e:
-        logger.error(f"Error getting main branch: {e}")
-        pass
-
-    # Fallback: check common branch names
-    for branch in ["main", "master"]:
-        try:
-            exit_code, stdout, stderr = run_command_with_streaming_and_capture(
-                ["git", "rev-parse", "--verify", f"origin/{branch}"],
-                quiet=True,
-            )
-            if exit_code == 0:
-                return branch
-        except KeyboardInterrupt:
-            logger.info("get_main_branch loop interrupted by user")
-            _thread.interrupt_main()
-            return "main"
-        except Exception as e:
-            logger.error(f"Error checking branch {branch}: {e}")
-            continue
-
-    return "main"  # Default fallback
-
-
-def get_current_branch() -> str:
-    """Get the current branch name."""
-    exit_code, stdout, stderr = run_command_with_streaming_and_capture(
-        ["git", "branch", "--show-current"],
-        quiet=True,
-        check=True,
-    )
-    return stdout.strip()
-
-
-def check_rebase_needed(main_branch: str) -> bool:
-    """Check if current branch is behind the remote main branch."""
-    try:
-        exit_code, stdout, stderr = run_command_with_streaming_and_capture(
-            ["git", "rev-parse", f"origin/{main_branch}"],
-            quiet=True,
-            check=True,
-        )
-        remote_hash = stdout.strip()
-
-        exit_code, stdout, stderr = run_command_with_streaming_and_capture(
-            ["git", "merge-base", "HEAD", f"origin/{main_branch}"],
-            quiet=True,
-            check=True,
-        )
-        merge_base = stdout.strip()
-
-        return merge_base != remote_hash
-
-    except KeyboardInterrupt:
-        logger.info("check_rebase_needed interrupted by user")
-        _thread.interrupt_main()
-        return False
-    except Exception as e:
-        logger.error(f"Error checking rebase needed: {e}")
-        return False
-
-
-def attempt_safe_rebase(main_branch: str) -> Tuple[bool, bool]:
-    """
-    Attempt a rebase and handle conflicts properly.
-
-    Returns:
-        Tuple[bool, bool]: (success, had_conflicts)
-        - success: True if rebase completed successfully
-        - had_conflicts: True if conflicts were encountered (and rebase was aborted)
-    """
-    try:
-        # Attempt the actual rebase
-        exit_code, stdout, stderr = run_command_with_streaming_and_capture(
-            ["git", "rebase", f"origin/{main_branch}"],
-            quiet=True,
-        )
-
-        if exit_code == 0:
-            # Rebase succeeded
-            logger.info(f"Successfully rebased onto origin/{main_branch}")
-            return True, False
-        else:
-            # Rebase failed, check if it's due to conflicts
-            stderr_lower = stderr.lower()
-            stdout_lower = stdout.lower()
-
-            if (
-                "conflict" in stderr_lower
-                or "conflict" in stdout_lower
-                or "failed to merge" in stderr_lower
-                or "failed to merge" in stdout_lower
-            ):
-                logger.info("Rebase failed due to conflicts, aborting rebase")
-                # Abort the rebase to return to clean state
-                abort_exit_code, abort_stdout, abort_stderr = (
-                    run_command_with_streaming_and_capture(
-                        ["git", "rebase", "--abort"],
-                        quiet=True,
-                    )
-                )
-
-                if abort_exit_code != 0:
-                    logger.error(f"Failed to abort rebase: {abort_stderr}")
-                    print(
-                        f"Error: Failed to abort rebase: {abort_stderr}",
-                        file=sys.stderr,
-                    )
-
-                return False, True
-            else:
-                # Rebase failed for other reasons
-                logger.error(f"Rebase failed: {stderr}")
-                print(f"Rebase failed: {stderr}", file=sys.stderr)
-                return False, False
-
-    except KeyboardInterrupt:
-        logger.info("attempt_safe_rebase interrupted by user")
-        _thread.interrupt_main()
-        return False, False
-    except Exception as e:
-        logger.error(f"Error attempting rebase: {e}")
-        print(f"Error attempting rebase: {e}", file=sys.stderr)
-        return False, False
 
 
 def safe_rebase_try() -> bool:
@@ -1071,7 +699,7 @@ def safe_rebase_try() -> bool:
 
         # Attempt the rebase directly - this will handle conflicts properly
         print(f"Attempting rebase onto origin/{main_branch}...")
-        success, had_conflicts = attempt_safe_rebase(main_branch)
+        success, had_conflicts = attempt_rebase(main_branch)
 
         if success:
             print(f"Successfully rebased onto origin/{main_branch}")
@@ -1105,12 +733,9 @@ def safe_push() -> bool:
     try:
         # First, try a normal push
         print("Attempting to push to remote...")
-        exit_code, stdout, stderr = run_command_with_streaming_and_capture(
-            ["git", "push"],
-            quiet=True,
-        )
+        success, stderr = git_push()
 
-        if exit_code == 0:
+        if success:
             print("Successfully pushed to remote")
             return True
 
@@ -1129,12 +754,9 @@ def safe_push() -> bool:
             if safe_rebase_try():
                 # Rebase succeeded, try push again
                 print("Rebase successful, attempting push again...")
-                exit_code, stdout, stderr = run_command_with_streaming_and_capture(
-                    ["git", "push"],
-                    quiet=True,
-                )
+                success, stderr = git_push()
 
-                if exit_code == 0:
+                if success:
                     print("Successfully pushed to remote after rebase")
                     return True
                 else:
@@ -1160,7 +782,7 @@ def safe_push() -> bool:
 def main() -> int:
     """Run git status, lint, test, add, and commit."""
 
-    args = _parse_args()
+    args = Args.parse_args()
     configure_logging(args.log)
     verbose = args.verbose
 
@@ -1204,7 +826,7 @@ def main() -> int:
     if args.just_ai_commit:
         try:
             # Just run the AI commit workflow
-            _exec("git add .", bash=False)
+            git_add_all()
             _ai_commit_or_prompt_for_commit_message(
                 args.no_autoaccept, args.message, no_interactive=False
             )
@@ -1237,7 +859,7 @@ def main() -> int:
                 print("Non-interactive mode: automatically adding all untracked files.")
                 for untracked_file in untracked_files:
                     print(f"  Adding {untracked_file}")
-                    _exec(f"git add {untracked_file}", bash=False)
+                    git_add_file(untracked_file)
             else:
                 answer_yes = get_answer_yes_or_no("Continue?", "y")
                 if not answer_yes:
@@ -1246,7 +868,7 @@ def main() -> int:
                 for untracked_file in untracked_files:
                     answer_yes = get_answer_yes_or_no(f"  Add {untracked_file}?", "y")
                     if answer_yes:
-                        _exec(f"git add {untracked_file}", bash=False)
+                        git_add_file(untracked_file)
                     else:
                         print(f"  Skipping {untracked_file}")
         if os.path.exists("./lint") and not args.no_lint:
@@ -1354,7 +976,7 @@ def main() -> int:
         if not args.no_push:
             # Fetch latest changes from remote
             print("Fetching latest changes from remote...")
-            _exec("git fetch", bash=False)
+            git_fetch()
 
             # Check if rebase is needed and handle it
             if not args.no_rebase:
@@ -1370,7 +992,7 @@ def main() -> int:
                         print(
                             f"Non-interactive mode: attempting automatic rebase onto origin/{main_branch}"
                         )
-                        success, had_conflicts = attempt_safe_rebase(main_branch)
+                        success, had_conflicts = attempt_rebase(main_branch)
                         if success:
                             print(f"Successfully rebased onto origin/{main_branch}")
                         elif had_conflicts:
@@ -1394,7 +1016,7 @@ def main() -> int:
                             return 1
 
                         # Perform the rebase
-                        success, had_conflicts = attempt_safe_rebase(main_branch)
+                        success, had_conflicts = attempt_rebase(main_branch)
                         if success:
                             print(f"Successfully rebased onto origin/{main_branch}")
                         elif had_conflicts:

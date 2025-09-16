@@ -24,7 +24,7 @@ class ArgumentParsingTester(unittest.TestCase):
         sys.path.insert(0, src_path)
 
         try:
-            from codeup.main import _parse_args
+            from codeup.args import _parse_args
 
             # Mock sys.argv for testing
             original_argv = sys.argv
@@ -68,7 +68,7 @@ class ArgumentParsingTester(unittest.TestCase):
         sys.path.insert(0, src_path)
 
         try:
-            from codeup.main import _parse_args
+            from codeup.args import _parse_args
 
             original_argv = sys.argv
 
@@ -120,7 +120,7 @@ class ArgumentParsingTester(unittest.TestCase):
         sys.path.insert(0, src_path)
 
         try:
-            from codeup.main import _parse_args
+            from codeup.args import _parse_args
 
             original_argv = sys.argv
 
@@ -156,7 +156,7 @@ class ArgumentParsingTester(unittest.TestCase):
         sys.path.insert(0, src_path)
 
         try:
-            from codeup.main import _parse_args
+            from codeup.args import _parse_args
 
             original_argv = sys.argv
 
@@ -183,7 +183,7 @@ class ArgumentParsingTester(unittest.TestCase):
         sys.path.insert(0, src_path)
 
         try:
-            from codeup.main import _parse_args
+            from codeup.args import _parse_args
 
             original_argv = sys.argv
 
@@ -212,7 +212,7 @@ class ArgumentParsingTester(unittest.TestCase):
         sys.path.insert(0, src_path)
 
         try:
-            from codeup.main import _parse_args
+            from codeup.args import _parse_args
 
             original_argv = sys.argv
 

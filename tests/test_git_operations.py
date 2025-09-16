@@ -149,7 +149,7 @@ class GitOperationsTester(unittest.TestCase):
         sys.path.insert(0, src_path)
 
         try:
-            from codeup.main import _safe_git_commit
+            from codeup.git_utils import safe_git_commit
 
             # Make a change and stage it
             with open("test_file.txt", "w") as f:
@@ -159,7 +159,7 @@ class GitOperationsTester(unittest.TestCase):
             )
 
             # Test commit
-            result = _safe_git_commit("Test commit message")
+            result = safe_git_commit("Test commit message")
             self.assertEqual(result, 0, "Git commit should succeed")
 
             # Verify commit was created
