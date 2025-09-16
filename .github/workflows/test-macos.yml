@@ -1,4 +1,4 @@
-name: Cross-platform Tests
+name: macOS Tests
 
 on:
   push:
@@ -8,10 +8,7 @@ on:
 
 jobs:
   test:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: macos-latest
 
     steps:
     - uses: actions/checkout@v4
