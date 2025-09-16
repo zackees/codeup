@@ -199,7 +199,7 @@ def main() -> int:
                             sys.exit(1)
                     for _ in range(3):
                         refresh_rtn = _exec(
-                            "uv pip install -e . --refresh", bash=True, die=False
+                            "uv pip install -e . --refresh", bash=False, die=False
                         )
                         if refresh_rtn == 0:
                             break

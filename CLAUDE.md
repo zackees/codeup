@@ -119,3 +119,30 @@ Test markers:
 - **Black**: Code formatting (88 character line length)
 - **Pyright**: Type checking (basic mode, Python 3.8+ compatibility)
 - **Pytest**: Testing framework with xdist for parallel execution
+
+## Data Structure Rules
+
+### No Tuples Rule
+**NEVER use tuples for return values or data structures.** Always use `@dataclass` instead.
+
+**Rationale**: Tuples are positional and error-prone. Dataclasses provide named fields, type safety, and better maintainability.
+
+```python
+# Bad - Tuple return
+def parse_data(text: str) -> Tuple[str, List[str]]:
+    return ("program", ["arg1", "arg2"])
+
+# Good - Dataclass return
+@dataclass(frozen=True)
+class ParseResult:
+    program: str
+    args: List[str]
+
+def parse_data(text: str) -> ParseResult:
+    return ParseResult(program="program", args=["arg1", "arg2"])
+```
+
+**Exceptions**: Only use tuples for:
+- Unpacking in function parameters: `*args`
+- Dictionary items iteration: `dict.items()`
+- Built-in functions that require tuples: `isinstance(obj, (str, int))`
