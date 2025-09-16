@@ -82,6 +82,7 @@ class TestShebangProcessorComprehensive(unittest.TestCase):
                 result = self.processor.lex_parse_shebang(shebang_line)
 
                 self.assertIsNotNone(result, f"Failed to parse shebang: {shebang_line}")
+                assert result is not None  # Type checker hint
                 self.assertIsInstance(
                     result,
                     self.ShebangResult,
@@ -130,6 +131,7 @@ class TestShebangProcessorComprehensive(unittest.TestCase):
             with self.subTest(shebang=shebang_line):
                 result = self.processor.lex_parse_shebang(shebang_line)
                 self.assertIsNotNone(result)
+                assert result is not None  # Type checker hint
                 self.assertEqual(result.program, expected_program)
                 self.assertEqual(result.args, expected_args)
 

@@ -14,9 +14,10 @@ ensuring that keyring functionality never completely fails.
 
 import logging
 import os
+from pathlib import Path
 from typing import Optional
 
-import semi_secret
+from semi_secret import SecretStorage, generate_key
 
 logger = logging.getLogger(__name__)
 
@@ -49,19 +50,31 @@ class KeyringManager:
         class SemiSecretAdapter:
             """Adapter to make semi_secret compatible with keyring interface."""
 
+            def __init__(self):
+                # Create a default storage path in user's config directory
+                config_dir = Path.home() / ".config" / "zcmds"
+                config_dir.mkdir(parents=True, exist_ok=True)
+                storage_path = config_dir / "keyring.dat"
+
+                # Use a default key - in production this should be more secure
+                key = generate_key()
+                salt = "zcmds_keyring_salt"
+
+                self.storage = SecretStorage(key, salt, storage_path)
+
             def get_password(self, service: str, username: str) -> Optional[str]:
                 try:
-                    return semi_secret.get(f"{service}:{username}")
+                    return self.storage.get(f"{service}:{username}")
                 except Exception as e:
                     logger.debug(f"semi_secret get failed: {e}")
                     return None
 
             def set_password(self, service: str, username: str, password: str) -> None:
-                semi_secret.set(f"{service}:{username}", password)
+                self.storage.set(f"{service}:{username}", password)
 
             def delete_password(self, service: str, username: str) -> None:
                 try:
-                    semi_secret.delete(f"{service}:{username}")
+                    self.storage.delete(f"{service}:{username}")
                 except Exception as e:
                     logger.debug(f"semi_secret delete failed: {e}")
 

@@ -174,7 +174,7 @@ class ShebangProcessor:
             return None
 
     def get_execution_command(
-        self, script_path: str, script_args: List[str] = None
+        self, script_path: str, script_args: Optional[List[str]] = None
     ) -> List[str]:
         """Get the command needed to execute the script on current platform.
 
@@ -198,7 +198,7 @@ class ShebangProcessor:
         return [resolved_program] + shebang_result.args + [script_path] + script_args
 
     def execute_script(
-        self, script_path: str, script_args: List[str] = None, **kwargs
+        self, script_path: str, script_args: Optional[List[str]] = None, **kwargs
     ) -> int:
         """Execute script with cross-platform shebang handling.
 
