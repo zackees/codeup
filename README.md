@@ -1,11 +1,15 @@
 # CodeUp - Intelligent Git Workflow Automation
 
-An intelligent git workflow automation tool that streamlines your development process with AI-powered commit messages and automated testing.
+
 
 [![Linting](../../actions/workflows/lint.yml/badge.svg)](../../actions/workflows/lint.yml)
 [![MacOS_Tests](../../actions/workflows/push_macos.yml/badge.svg)](../../actions/workflows/push_macos.yml)
 [![Ubuntu_Tests](../../actions/workflows/push_ubuntu.yml/badge.svg)](../../actions/workflows/push_ubuntu.yml)
 [![Win_Tests](../../actions/workflows/push_win.yml/badge.svg)](../../actions/workflows/push_win.yml)
+
+**An intelligent git workflow automation tool that streamlines your development process with AI-powered commit messages and automated testing.**
+
+![here-title](https://github.com/user-attachments/assets/c661d973-3f44-4a70-b3ae-cb75bbf09285)
 
 ## What is CodeUp?
 
