@@ -1,10 +1,13 @@
 import argparse
 import json
+import logging
 import os
 import sys
 from typing import Union
 
 from appdirs import user_config_dir  # type: ignore
+
+logger = logging.getLogger(__name__)
 
 
 def get_config_path() -> str:
@@ -27,7 +30,8 @@ def create_or_load_config() -> dict:
         with open(config_file) as f:
             config = json.loads(f.read())
         return config
-    except OSError:
+    except OSError as e:
+        logger.warning(f"Could not load config file: {e}")
         save_config({})
         return {}
 
@@ -46,7 +50,8 @@ def get_anthropic_api_key() -> Union[str, None]:
         api_key = keyring.get_password("zcmds", "anthropic_api_key")
         if api_key:
             return api_key
-    except (ImportError, Exception):
+    except (ImportError, Exception) as e:
+        logger.debug(f"Could not access keyring for API key: {e}")
         pass
 
     # 3. Check environment variable
@@ -67,7 +72,8 @@ def get_openai_api_key() -> Union[str, None]:
         api_key = keyring.get_password("zcmds", "openai_api_key")
         if api_key:
             return api_key
-    except (ImportError, Exception):
+    except (ImportError, Exception) as e:
+        logger.debug(f"Could not access keyring for OpenAI API key: {e}")
         pass
 
     # 3. Check environment variable
@@ -81,10 +87,12 @@ def _set_key_in_keyring(service: str, key_name: str, api_key: str) -> bool:
 
         keyring.set_password("zcmds", key_name, api_key)
         return True
-    except ImportError:
+    except ImportError as e:
+        logger.warning(f"Keyring not available: {e}")
         print("Error: keyring not available. Install with: pip install keyring")
         return False
     except Exception as e:
+        logger.error(f"Error storing key in keyring: {e}")
         print(f"Error storing key in keyring: {e}")
         return False
 
@@ -97,6 +105,7 @@ def _set_key_in_config(key_name: str, api_key: str) -> bool:
         save_config(config)
         return True
     except Exception as e:
+        logger.error(f"Error storing key in config: {e}")
         print(f"Error storing key in config: {e}")
         return False
 

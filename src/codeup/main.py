@@ -440,8 +440,8 @@ def _get_keyring_api_key() -> Union[str, None]:
 
         api_key = keyring.get_password("zcmds", "openai_api_key")
         return api_key if api_key else None
-    except ImportError:
-        # keyring not available
+    except ImportError as e:
+        logger.debug(f"Keyring not available: {e}")
         return None
     except KeyboardInterrupt:
         logger.info("_get_keyring_api_key interrupted by user")
@@ -608,8 +608,31 @@ Respond with only the commit message, nothing else."""
                     logger.warning("OpenAI API returned empty response")
 
             except Exception as e:
-                logger.warning(f"OpenAI commit message generation failed: {e}")
-                print(f"OpenAI generation failed: {e}")
+                # Extract cleaner error message from OpenAI exceptions
+                error_msg = str(e)
+                if "Error code: 401" in error_msg and "Incorrect API key" in error_msg:
+                    clean_msg = "Invalid OpenAI API key"
+                elif "Error code:" in error_msg and "message" in error_msg:
+                    # Try to extract just the message part from OpenAI error
+                    try:
+                        import re
+
+                        match = re.search(r"'message': '([^']*)'", error_msg)
+                        if match:
+                            clean_msg = match.group(1)
+                        else:
+                            clean_msg = (
+                                error_msg.split(" - ")[0]
+                                if " - " in error_msg
+                                else str(e)
+                            )
+                    except Exception:
+                        clean_msg = str(e)
+                else:
+                    clean_msg = str(e)
+
+                logger.warning(f"OpenAI commit message generation failed: {clean_msg}")
+                print(f"OpenAI generation failed: {clean_msg}")
 
         # Fallback to Anthropic only if we have a key
         from codeup.config import get_anthropic_api_key
@@ -1065,10 +1088,12 @@ def main() -> int:
             keyring.set_password("zcmds", "anthropic_api_key", args.set_key_anthropic)
             print("Anthropic API key stored in system keyring")
             return 0
-        except ImportError:
+        except ImportError as e:
+            logger.warning(f"Keyring not available for Anthropic key: {e}")
             print("Error: keyring not available. Install with: pip install keyring")
             return 1
         except Exception as e:
+            logger.error(f"Error storing Anthropic key: {e}")
             print(f"Error storing Anthropic key: {e}")
             return 1
 
@@ -1079,10 +1104,12 @@ def main() -> int:
             keyring.set_password("zcmds", "openai_api_key", args.set_key_openai)
             print("OpenAI API key stored in system keyring")
             return 0
-        except ImportError:
+        except ImportError as e:
+            logger.warning(f"Keyring not available for OpenAI key: {e}")
             print("Error: keyring not available. Install with: pip install keyring")
             return 1
         except Exception as e:
+            logger.error(f"Error storing OpenAI key: {e}")
             print(f"Error storing OpenAI key: {e}")
             return 1
 
