@@ -20,7 +20,8 @@ jobs:
       run: uv python install
 
     - name: Install dependencies
-      run: uv sync
+      run: ./install
+      shell: bash
 
     - name: Run tests
       run: ./test
