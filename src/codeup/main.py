@@ -190,6 +190,28 @@ def _find_bash_on_windows() -> str:
     return "bash"
 
 
+def _to_exec_str(cmd: str, bash: bool) -> str:
+    """Convert command to properly escaped string for execution.
+
+    Uses subprocess.list2cmdline for secure command building on Windows.
+
+    Args:
+        cmd: The command string to execute
+        bash: Whether to run via bash shell
+
+    Returns:
+        Properly escaped command string
+    """
+    import subprocess
+
+    if bash and sys.platform == "win32":
+        bash_exe = _find_bash_on_windows()
+        # Use subprocess.list2cmdline for secure string building
+        args = [bash_exe, "-c", cmd]
+        return subprocess.list2cmdline(args)
+    return cmd
+
+
 def _to_exec_args(cmd: str, bash: bool) -> List[str]:
     """Convert command string to properly escaped argument list for subprocess.
 
@@ -207,6 +229,7 @@ def _to_exec_args(cmd: str, bash: bool) -> List[str]:
     else:
         # For non-bash commands, split properly using shlex
         import shlex
+
         return shlex.split(cmd)
 
 
