@@ -45,10 +45,9 @@ def get_git_status() -> str:
 def get_git_diff_cached() -> str:
     """Get staged changes diff."""
     try:
-        print("Running: git diff --cached")
         exit_code, stdout, stderr = run_command_with_streaming_and_capture(
             ["git", "diff", "--cached"],
-            quiet=False,  # Enable streaming to see what's happening
+            quiet=True,  # Quiet for AI commit generation
             check=True,
         )
         return stdout.strip()
@@ -64,10 +63,9 @@ def get_git_diff_cached() -> str:
 def get_git_diff() -> str:
     """Get unstaged changes diff."""
     try:
-        print("Running: git diff")
         exit_code, stdout, stderr = run_command_with_streaming_and_capture(
             ["git", "diff"],
-            quiet=False,  # Enable streaming to see what's happening
+            quiet=True,  # Quiet for AI commit generation
             check=True,
         )
         return stdout.strip()
