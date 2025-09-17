@@ -126,7 +126,18 @@ def get_untracked_files() -> list[str]:
         quiet=False,  # Enable streaming to see what's happening
         check=True,
     )
-    return [f.strip() for f in stdout.splitlines() if f.strip()]
+
+    # Strip timestamp prefixes like "[0.03] " from streaming output
+    files = []
+    for line in stdout.splitlines():
+        line = line.strip()
+        if line:
+            # Remove timestamp prefix if present (format: [X.XX] filename)
+            import re
+
+            cleaned_line = re.sub(r"^\[\d+\.\d+\]\s*", "", line)
+            files.append(cleaned_line)
+    return files
 
 
 def get_main_branch() -> str:
