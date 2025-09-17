@@ -7,6 +7,9 @@ from typing import Any
 
 from running_process import RunningProcess
 
+# Timeout constants
+LINE_ITERATION_TIMEOUT = 300.0  # 5 minutes for line iteration
+
 
 def run_command_with_streaming(
     cmd: str | list[str],
@@ -28,7 +31,7 @@ def run_command_with_streaming(
 
     # Stream output
     try:
-        for line in rp.line_iter(timeout=0.1):
+        for line in rp.line_iter(timeout=LINE_ITERATION_TIMEOUT):
             print(line, flush=True)
     except KeyboardInterrupt:
         rp.kill()
@@ -36,7 +39,14 @@ def run_command_with_streaming(
 
         _thread.interrupt_main()
         return 1
-    except Exception:
+    except Exception as e:
+        # Log the exception to understand what's being silently swallowed
+        import logging
+
+        logger = logging.getLogger(__name__)
+        logger.warning(
+            f"Exception during line iteration (streaming may be affected): {e}"
+        )
         # Continue if line iteration times out or has other non-fatal errors
         pass
 
@@ -64,7 +74,7 @@ def run_command_with_streaming_and_capture(
     )
 
     try:
-        for line in rp.line_iter(timeout=0.1):
+        for line in rp.line_iter(timeout=LINE_ITERATION_TIMEOUT):
             stdout_lines.append(line)
             if not quiet:
                 print(line, flush=True)
@@ -74,7 +84,14 @@ def run_command_with_streaming_and_capture(
 
         _thread.interrupt_main()
         return 1, "", ""
-    except Exception:
+    except Exception as e:
+        # Log the exception to understand what's being silently swallowed
+        import logging
+
+        logger = logging.getLogger(__name__)
+        logger.warning(
+            f"Exception during line iteration (streaming may be affected): {e}"
+        )
         # Continue if line iteration times out or has other non-fatal errors
         pass
 

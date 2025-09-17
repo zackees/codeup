@@ -166,6 +166,13 @@ def _main_worker() -> int:
 
                 if rtn != 0:
                     print("Error: Linting failed.")
+                    # Display captured output if linting failed
+                    if stderr.strip():
+                        print("STDERR:", file=sys.stderr)
+                        print(stderr, file=sys.stderr)
+                    if stdout.strip():
+                        print("STDOUT:")
+                        print(stdout)
                     if uv_resolved_dependencies:
                         sys.exit(1)
                     if args.no_interactive:
