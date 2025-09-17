@@ -15,6 +15,7 @@ import os
 import sys
 import threading
 import time
+import traceback
 
 from codeup.aicommit import ai_commit_or_prompt_for_commit_message
 from codeup.args import Args
@@ -309,6 +310,57 @@ def _main_worker() -> int:
     return 0
 
 
+def _is_waiting_for_user_input() -> bool:
+    """Detect if any thread is waiting for user input."""
+    for thread in threading.enumerate():
+        if thread != threading.current_thread() and thread.ident is not None:
+            frame = sys._current_frames().get(thread.ident)
+            if frame:
+                # Check if thread is blocked on input operations
+                while frame:
+                    # Check for input-related function calls in the stack
+                    if frame.f_code.co_name in (
+                        "input",
+                        "read",
+                        "readline",
+                        "get_input",
+                    ):
+                        # Check if it's in our input_with_timeout function
+                        if (
+                            "input_with_timeout" in frame.f_code.co_filename
+                            or "get_answer_yes_or_no" in frame.f_code.co_filename
+                        ):
+                            return True
+                    frame = frame.f_back
+    return False
+
+
+def _dump_all_thread_stacks() -> None:
+    """Dump stack traces of all threads to help debug hanging issues."""
+    print("\n" + "=" * 80, file=sys.stderr)
+    print("TIMEOUT: Dumping stack traces of all threads", file=sys.stderr)
+    print("=" * 80, file=sys.stderr)
+
+    for thread_id, frame in sys._current_frames().items():
+        thread = None
+        for t in threading.enumerate():
+            if t.ident == thread_id:
+                thread = t
+                break
+
+        thread_name = thread.name if thread else f"Thread-{thread_id}"
+        print(f"\nThread: {thread_name} (ID: {thread_id})", file=sys.stderr)
+        print("-" * 40, file=sys.stderr)
+
+        # Print the stack trace for this thread
+        try:
+            traceback.print_stack(frame, file=sys.stderr)
+        except Exception as e:
+            print(f"Error printing stack trace: {e}", file=sys.stderr)
+
+    print("=" * 80, file=sys.stderr)
+
+
 def main() -> int:
     """Main entry point with 5-minute timeout and non-blocking execution."""
 
@@ -316,10 +368,31 @@ def main() -> int:
     result = [1]  # Default to error exit code
 
     def timeout_handler():
-        """Handle timeout by forcing process exit."""
+        """Handle timeout by dumping stack traces and forcing process exit."""
         time.sleep(300)  # 5 minutes = 300 seconds
-        logger.error("Process timed out after 5 minutes, forcing exit")
-        print("ERROR: Process timed out after 5 minutes, forcing exit", file=sys.stderr)
+
+        # Check if we're waiting for user input
+        if _is_waiting_for_user_input():
+            try:
+                logger.error(
+                    "Process timed out after 5 minutes while waiting for user input"
+                )
+            except (ValueError, OSError):
+                # Log file may be closed, write directly to stderr
+                pass
+            print(
+                "ERROR: Process timed out after 5 minutes - died while waiting for user input",
+                file=sys.stderr,
+            )
+        else:
+            try:
+                logger.error("Process timed out after 5 minutes, dumping stack traces")
+            except (ValueError, OSError):
+                # Log file may be closed, write directly to stderr
+                pass
+            print("ERROR: Process timed out after 5 minutes", file=sys.stderr)
+            _dump_all_thread_stacks()
+
         _thread.interrupt_main()
         os._exit(1)
 
@@ -335,16 +408,21 @@ def main() -> int:
             result[0] = 1
 
     # Start the timeout handler in a daemon thread
-    timeout_thread = threading.Thread(target=timeout_handler, daemon=True)
+    timeout_thread = threading.Thread(
+        target=timeout_handler, daemon=True, name="TimeoutHandler"
+    )
     timeout_thread.start()
 
-    # Start the main worker in a separate thread
-    worker_thread = threading.Thread(target=worker_wrapper)
+    # Start the main worker in a separate thread (not daemon - we want to wait for it)
+    worker_thread = threading.Thread(
+        target=worker_wrapper, name="MainWorker", daemon=False
+    )
     worker_thread.start()
 
     try:
-        # Wait for the worker thread to complete
-        worker_thread.join()
+        # Poll the worker thread so we can respond to Ctrl+C immediately
+        while worker_thread.is_alive():
+            worker_thread.join(timeout=0.1)  # Poll every 100ms
         return result[0]
     except KeyboardInterrupt:
         logger.info("Main thread interrupted by user")

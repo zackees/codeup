@@ -277,7 +277,7 @@ def run_command_with_timeout(
             nonlocal exit_code
             exit_code = stream_process_output(process)
 
-        thread = threading.Thread(target=stream_thread)
+        thread = threading.Thread(target=stream_thread, daemon=True)
         thread.start()
         thread.join(timeout=timeout)
 

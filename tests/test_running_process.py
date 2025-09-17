@@ -30,7 +30,8 @@ class RunningProcessTester(unittest.TestCase):
         exit_code = stream_process_output(mock_process)
         self.assertEqual(exit_code, 0)
 
-    def test_stream_process_output_keyboard_interrupt(self):
+    @patch("codeup.running_process._thread.interrupt_main")
+    def test_stream_process_output_keyboard_interrupt(self, mock_interrupt):
         """Test that stream_process_output handles KeyboardInterrupt."""
         mock_process = MagicMock()
         mock_process.poll.side_effect = KeyboardInterrupt()
@@ -38,6 +39,7 @@ class RunningProcessTester(unittest.TestCase):
         exit_code = stream_process_output(mock_process)
         self.assertEqual(exit_code, 130)
         mock_process.terminate.assert_called_once()
+        mock_interrupt.assert_called_once()
 
     @patch("codeup.running_process.subprocess.Popen")
     def test_run_command_with_streaming_success(self, mock_popen):

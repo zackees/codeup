@@ -34,8 +34,11 @@ def safe_git_commit(message: str) -> int:
 
 def get_git_status() -> str:
     """Get git status output."""
+    print("Running: git status")
     exit_code, stdout, stderr = run_command_with_streaming_and_capture(
-        ["git", "status"], quiet=True, check=True
+        ["git", "status"],
+        quiet=False,
+        check=True,  # Enable streaming to see what's happening
     )
     return stdout
 
@@ -43,9 +46,10 @@ def get_git_status() -> str:
 def get_git_diff_cached() -> str:
     """Get staged changes diff."""
     try:
+        print("Running: git diff --cached")
         exit_code, stdout, stderr = run_command_with_streaming_and_capture(
             ["git", "diff", "--cached"],
-            quiet=True,
+            quiet=False,  # Enable streaming to see what's happening
             check=True,
         )
         return stdout.strip()
@@ -61,9 +65,10 @@ def get_git_diff_cached() -> str:
 def get_git_diff() -> str:
     """Get unstaged changes diff."""
     try:
+        print("Running: git diff")
         exit_code, stdout, stderr = run_command_with_streaming_and_capture(
             ["git", "diff"],
-            quiet=True,
+            quiet=False,  # Enable streaming to see what's happening
             check=True,
         )
         return stdout.strip()
@@ -79,9 +84,10 @@ def get_git_diff() -> str:
 def get_staged_files() -> List[str]:
     """Get list of staged file names."""
     try:
+        print("Running: git diff --cached --name-only")
         exit_code, stdout, stderr = run_command_with_streaming_and_capture(
             ["git", "diff", "--cached", "--name-only"],
-            quiet=True,
+            quiet=False,  # Enable streaming to see what's happening
             check=True,
         )
         return [f.strip() for f in stdout.splitlines() if f.strip()]
@@ -97,9 +103,10 @@ def get_staged_files() -> List[str]:
 def get_unstaged_files() -> List[str]:
     """Get list of unstaged file names."""
     try:
+        print("Running: git diff --name-only")
         exit_code, stdout, stderr = run_command_with_streaming_and_capture(
             ["git", "diff", "--name-only"],
-            quiet=True,
+            quiet=False,  # Enable streaming to see what's happening
             check=True,
         )
         return [f.strip() for f in stdout.splitlines() if f.strip()]
@@ -114,9 +121,10 @@ def get_unstaged_files() -> List[str]:
 
 def get_untracked_files() -> List[str]:
     """Get list of untracked files."""
+    print("Running: git ls-files --others --exclude-standard")
     exit_code, stdout, stderr = run_command_with_streaming_and_capture(
         ["git", "ls-files", "--others", "--exclude-standard"],
-        quiet=True,
+        quiet=False,  # Enable streaming to see what's happening
         check=True,
     )
     return [f.strip() for f in stdout.splitlines() if f.strip()]
@@ -162,9 +170,10 @@ def get_main_branch() -> str:
 
 def get_current_branch() -> str:
     """Get the current branch name."""
+    print("Running: git branch --show-current")
     exit_code, stdout, stderr = run_command_with_streaming_and_capture(
         ["git", "branch", "--show-current"],
-        quiet=True,
+        quiet=False,  # Enable streaming to see what's happening
         check=True,
     )
     return stdout.strip()

@@ -23,46 +23,46 @@ class Args:
     set_key_openai: Union[str, None]
 
     def __post_init__(self) -> None:
-        assert isinstance(self.repo, (str, type(None))), (
-            f"Expected str, got {type(self.repo)}"
-        )
-        assert isinstance(self.no_push, bool), (
-            f"Expected bool, got {type(self.no_push)}"
-        )
-        assert isinstance(self.verbose, bool), (
-            f"Expected bool, got {type(self.verbose)}"
-        )
-        assert isinstance(self.no_test, bool), (
-            f"Expected bool, got {type(self.no_test)}"
-        )
-        assert isinstance(self.no_lint, bool), (
-            f"Expected bool, got {type(self.no_lint)}"
-        )
-        assert isinstance(self.publish, bool), (
-            f"Expected bool, got {type(self.publish)}"
-        )
-        assert isinstance(self.no_autoaccept, bool), (
-            f"Expected bool, got {type(self.no_autoaccept)}"
-        )
-        assert isinstance(self.message, (str, type(None))), (
-            f"Expected str, got {type(self.message)}"
-        )
-        assert isinstance(self.no_rebase, bool), (
-            f"Expected bool, got {type(self.no_rebase)}"
-        )
-        assert isinstance(self.no_interactive, bool), (
-            f"Expected bool, got {type(self.no_interactive)}"
-        )
+        assert isinstance(
+            self.repo, (str, type(None))
+        ), f"Expected str, got {type(self.repo)}"
+        assert isinstance(
+            self.no_push, bool
+        ), f"Expected bool, got {type(self.no_push)}"
+        assert isinstance(
+            self.verbose, bool
+        ), f"Expected bool, got {type(self.verbose)}"
+        assert isinstance(
+            self.no_test, bool
+        ), f"Expected bool, got {type(self.no_test)}"
+        assert isinstance(
+            self.no_lint, bool
+        ), f"Expected bool, got {type(self.no_lint)}"
+        assert isinstance(
+            self.publish, bool
+        ), f"Expected bool, got {type(self.publish)}"
+        assert isinstance(
+            self.no_autoaccept, bool
+        ), f"Expected bool, got {type(self.no_autoaccept)}"
+        assert isinstance(
+            self.message, (str, type(None))
+        ), f"Expected str, got {type(self.message)}"
+        assert isinstance(
+            self.no_rebase, bool
+        ), f"Expected bool, got {type(self.no_rebase)}"
+        assert isinstance(
+            self.no_interactive, bool
+        ), f"Expected bool, got {type(self.no_interactive)}"
         assert isinstance(self.log, bool), f"Expected bool, got {type(self.log)}"
-        assert isinstance(self.just_ai_commit, bool), (
-            f"Expected bool, got {type(self.just_ai_commit)}"
-        )
-        assert isinstance(self.set_key_anthropic, (str, type(None))), (
-            f"Expected (str, type(None)), got {type(self.set_key_anthropic)}"
-        )
-        assert isinstance(self.set_key_openai, (str, type(None))), (
-            f"Expected (str, type(None)), got {type(self.set_key_openai)}"
-        )
+        assert isinstance(
+            self.just_ai_commit, bool
+        ), f"Expected bool, got {type(self.just_ai_commit)}"
+        assert isinstance(
+            self.set_key_anthropic, (str, type(None))
+        ), f"Expected (str, type(None)), got {type(self.set_key_anthropic)}"
+        assert isinstance(
+            self.set_key_openai, (str, type(None))
+        ), f"Expected (str, type(None)), got {type(self.set_key_openai)}"
 
     @staticmethod
     def parse_args() -> "Args":
