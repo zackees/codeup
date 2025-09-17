@@ -47,6 +47,21 @@ from codeup.utils import (
 # Logger will be configured in main() based on --log flag
 logger = logging.getLogger(__name__)
 
+# Banner constants
+LINTING_BANNER = """
+#########################################
+#               LINTING                 #
+#########################################
+
+"""
+
+TESTING_BANNER = """
+#########################################
+#               TESTING                 #
+#########################################
+
+"""
+
 
 # Force UTF-8 encoding for proper international character handling
 if sys.platform == "win32":
@@ -138,6 +153,8 @@ def _main_worker() -> int:
                     else:
                         print(f"  Skipping {untracked_file}")
         if os.path.exists("./lint") and not args.no_lint:
+            print(LINTING_BANNER, end="")
+
             cmd = "./lint" + (" --verbose" if verbose else "")
             cmd = _to_exec_str(cmd, bash=True)
 
@@ -206,6 +223,8 @@ def _main_worker() -> int:
                 print(f"Linting error: {e}", file=sys.stderr)
                 sys.exit(1)
         if not args.no_test and os.path.exists("./test"):
+            print(TESTING_BANNER, end="")
+
             test_cmd = "./test" + (" --verbose" if verbose else "")
             test_cmd = _to_exec_str(test_cmd, bash=True)
 

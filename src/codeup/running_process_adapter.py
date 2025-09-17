@@ -5,7 +5,7 @@ Adapter module to bridge the old running_process interface with the new package.
 from pathlib import Path
 from typing import Any
 
-from running_process import RunningProcess
+from running_process import RunningProcess, TimeDeltaFormatter
 
 # Timeout constants
 LINE_ITERATION_TIMEOUT = 300.0  # 5 minutes for line iteration
@@ -25,6 +25,7 @@ def run_command_with_streaming(
             timeout=timeout,
             auto_run=True,
             check=False,
+            output_formatter=TimeDeltaFormatter(),
         )
     except FileNotFoundError:
         return 127
@@ -71,6 +72,7 @@ def run_command_with_streaming_and_capture(
         timeout=timeout,
         auto_run=True,
         check=False,
+        output_formatter=TimeDeltaFormatter(),
     )
 
     try:
@@ -126,7 +128,12 @@ class ProcessManager:
 
     def __enter__(self) -> "ProcessManager":
         """Start the process when entering context."""
-        self.process = RunningProcess(command=self.cmd, auto_run=True, **self.kwargs)
+        self.process = RunningProcess(
+            command=self.cmd,
+            auto_run=True,
+            output_formatter=TimeDeltaFormatter(),
+            **self.kwargs,
+        )
         return self
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
