@@ -300,14 +300,17 @@ def configure_logging(enable_file_logging: bool) -> None:
         handlers.append(logging.FileHandler("codeup.log"))
 
     logging.basicConfig(
-        level=logging.DEBUG,  # Changed to DEBUG for troubleshooting
+        level=logging.INFO,  # Changed from DEBUG to INFO to reduce spam
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         handlers=handlers,
         force=True,  # Override any existing configuration
     )
 
-    # Reduce verbosity of third-party loggers
+    # Reduce verbosity of third-party loggers to prevent debug spam
     logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("openai").setLevel(logging.WARNING)
+    logging.getLogger("anthropic").setLevel(logging.WARNING)
 
 
 def _publish() -> None:
