@@ -61,9 +61,7 @@ Respond with only the commit message, nothing else."""
             # Check if it's a text block and has the text attribute
             if hasattr(first_block, "text"):
                 commit_message = first_block.text.strip()  # type: ignore
-                logger.info(
-                    f"Generated Anthropic commit message: {commit_message[:50]}..."
-                )
+                print(f"Generated Anthropic commit message: {commit_message[:50]}...")
                 return commit_message
             else:
                 logger.warning("Anthropic API returned non-text content")
@@ -93,7 +91,6 @@ def _generate_ai_commit_message() -> str | None:
         api_key = get_openai_api_key()
 
         # Get staged diff
-        logger.info("Getting git diff for commit message generation")
         diff_text = get_git_diff_cached()
 
         if not diff_text:
@@ -104,8 +101,6 @@ def _generate_ai_commit_message() -> str | None:
                 logger.warning("No changes found in git diff")
                 return None
 
-        logger.info(f"Got diff, length: {len(diff_text)}")
-
         # Try OpenAI first if we have a key
         if api_key:
             try:
@@ -115,9 +110,6 @@ def _generate_ai_commit_message() -> str | None:
                 # Force the correct OpenAI API endpoint
                 os.environ["OPENAI_BASE_URL"] = "https://api.openai.com/v1"
                 os.environ["OPENAI_API_BASE"] = "https://api.openai.com/v1"
-
-                logger.info(f"Using OpenAI API key, length: {len(api_key)}")
-                logger.info("Set OpenAI base URL to: https://api.openai.com/v1")
 
                 # Create OpenAI client
                 client = openai.OpenAI(api_key=api_key)
@@ -190,12 +182,12 @@ Respond with only the commit message, nothing else."""
         from codeup.config import get_anthropic_api_key
 
         if get_anthropic_api_key():
-            logger.info("Trying Anthropic as fallback for commit message generation")
+            print("Trying Anthropic as fallback for commit message generation")
             anthropic_message = _generate_ai_commit_message_anthropic(diff_text)
             if anthropic_message:
                 return anthropic_message
         else:
-            logger.info("No Anthropic API key found, skipping Anthropic fallback")
+            print("No Anthropic API key found, skipping Anthropic fallback")
 
         # If both failed
         logger.warning("AI commit message generation failed")
