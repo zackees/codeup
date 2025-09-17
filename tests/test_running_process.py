@@ -19,12 +19,9 @@ class RunningProcessTester(unittest.TestCase):
     def test_run_command_with_streaming_success(self, mock_popen):
         """Test successful command execution with streaming."""
         mock_process = MagicMock()
-        mock_process.poll.side_effect = [None, 0]
-        mock_process.stdout.readline.side_effect = ["output\n", ""]
-        mock_process.stderr.readline.side_effect = [""]
-        mock_process.stdout.__iter__.return_value = []
-        mock_process.stderr.__iter__.return_value = []
-        mock_process.wait.return_value = 0
+        mock_process.returncode = 0  # Set as actual integer, not MagicMock
+        mock_process.line_iter.return_value = iter(["output"])
+        mock_process.wait.return_value = None
         mock_popen.return_value = mock_process
 
         exit_code = run_command_with_streaming(["echo", "test"])
@@ -43,12 +40,9 @@ class RunningProcessTester(unittest.TestCase):
     def test_run_command_with_timeout_success(self, mock_popen):
         """Test successful command execution with timeout."""
         mock_process = MagicMock()
-        mock_process.poll.side_effect = [None, 0]
-        mock_process.stdout.readline.side_effect = ["output\n", ""]
-        mock_process.stderr.readline.side_effect = [""]
-        mock_process.stdout.__iter__.return_value = []
-        mock_process.stderr.__iter__.return_value = []
-        mock_process.wait.return_value = 0
+        mock_process.returncode = 0  # Set as actual integer, not MagicMock
+        mock_process.line_iter.return_value = iter(["output"])
+        mock_process.wait.return_value = None
         mock_popen.return_value = mock_process
 
         # Test with a very short timeout but the process should complete quickly
@@ -59,7 +53,7 @@ class RunningProcessTester(unittest.TestCase):
         """Test ProcessManager context manager functionality."""
         with patch("codeup.running_process_adapter.RunningProcess") as mock_popen:
             mock_process = MagicMock()
-            mock_process.poll.return_value = None
+            mock_process.finished = False  # Set as actual boolean, not MagicMock
             mock_popen.return_value = mock_process
 
             with ProcessManager(["echo", "test"]) as pm:
@@ -73,13 +67,9 @@ class RunningProcessTester(unittest.TestCase):
         """Test ProcessManager run method."""
         with patch("codeup.running_process_adapter.RunningProcess") as mock_popen:
             mock_process = MagicMock()
-            # For the context manager exit, ensure poll returns a value
-            mock_process.poll.side_effect = [None, 0, 0]  # Added extra value for exit
-            mock_process.stdout.readline.side_effect = ["output\n", ""]
-            mock_process.stderr.readline.side_effect = [""]
-            mock_process.stdout.__iter__.return_value = []
-            mock_process.stderr.__iter__.return_value = []
-            mock_process.wait.return_value = 0
+            mock_process.finished = False  # Set as actual boolean
+            mock_process.returncode = 0  # Set as actual integer
+            mock_process.wait.return_value = None
             mock_popen.return_value = mock_process
 
             with ProcessManager(["echo", "test"]) as pm:
@@ -91,7 +81,7 @@ class RunningProcessTester(unittest.TestCase):
         """Test ProcessManager terminate and kill methods."""
         with patch("codeup.running_process_adapter.RunningProcess") as mock_popen:
             mock_process = MagicMock()
-            mock_process.poll.return_value = None  # Process is running
+            mock_process.finished = False  # Set as actual boolean
             mock_popen.return_value = mock_process
 
             pm = ProcessManager(["echo", "test"])

@@ -15,13 +15,16 @@ def run_command_with_streaming(
     **kwargs: Any,
 ) -> int:
     """Run command with streaming output using the new package."""
-    rp = RunningProcess(
-        command=cmd,
-        cwd=Path(cwd) if cwd else None,
-        timeout=timeout,
-        auto_run=True,
-        check=False,
-    )
+    try:
+        rp = RunningProcess(
+            command=cmd,
+            cwd=Path(cwd) if cwd else None,
+            timeout=timeout,
+            auto_run=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        return 127
 
     # Stream output
     try:
