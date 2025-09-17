@@ -4,6 +4,7 @@ Process management utilities for streaming subprocess output.
 Migrated and adapted from zackees/clud repository.
 """
 
+import _thread
 import subprocess
 import sys
 import threading
@@ -69,6 +70,7 @@ def stream_and_capture_output(
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait()
+        _thread.interrupt_main()
         return 130, "".join(stdout_lines), "".join(stderr_lines)
 
 
@@ -115,6 +117,7 @@ def stream_process_output(process: subprocess.Popen[str]) -> int:
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait()
+        _thread.interrupt_main()
         return 130  # Standard exit code for SIGINT
 
 

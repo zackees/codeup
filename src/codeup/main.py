@@ -33,7 +33,7 @@ from codeup.git_utils import (
 )
 from codeup.keyring import set_anthropic_api_key, set_openai_api_key
 from codeup.running_process import (
-    run_command_with_timeout,
+    run_command_with_streaming_and_capture,
 )
 from codeup.utils import (
     _exec,
@@ -142,43 +142,26 @@ def _main_worker() -> int:
             cmd = "./lint" + (" --verbose" if verbose else "")
             cmd = _to_exec_str(cmd, bash=True)
 
-            # Use our new streaming process with timeout
+            # Use streaming process that captures output AND streams in real-time
             uv_resolved_dependencies = True
             try:
-                # Capture output to check for dependency resolution issues
-                import io
                 import shlex
-
-                # Redirect stdout temporarily to capture output
-                original_stdout = sys.stdout
-                output_capture = io.StringIO()
-
-                class TeeOutput:
-                    def __init__(self, *files):
-                        self.files = files
-
-                    def write(self, obj):
-                        for f in self.files:
-                            f.write(obj)
-                            f.flush()
-
-                    def flush(self):
-                        for f in self.files:
-                            f.flush()
-
-                sys.stdout = TeeOutput(original_stdout, output_capture)
 
                 # Split the command properly for subprocess
                 cmd_parts = shlex.split(cmd)
                 logger.debug(f"Running lint with command parts: {cmd_parts}")
 
-                # Run with 300 second (5 minute) timeout
-                rtn = run_command_with_timeout(cmd_parts, timeout=300.0, shell=True)
+                print(f"Running: {cmd}")
+                # Run with streaming AND capture for dependency detection
+                rtn, stdout, stderr = run_command_with_streaming_and_capture(
+                    cmd_parts,
+                    shell=True,
+                    quiet=False,  # Stream output in real-time
+                    capture_output=True,  # Also capture for dependency checking
+                )
 
-                # Restore stdout and check output
-                sys.stdout = original_stdout
-                output_text = output_capture.getvalue()
-
+                # Check captured output for dependency resolution issues
+                output_text = stdout + stderr
                 if "No solution found when resolving dependencies" in output_text:
                     uv_resolved_dependencies = False
 
@@ -222,8 +205,19 @@ def _main_worker() -> int:
 
             print(f"Running: {test_cmd}")
             try:
-                # Run tests with 300 second (5 minute) timeout
-                rtn = run_command_with_timeout(test_cmd, timeout=300.0, shell=True)
+                import shlex
+
+                # Split the command properly for subprocess
+                test_cmd_parts = shlex.split(test_cmd)
+                logger.debug(f"Running test with command parts: {test_cmd_parts}")
+
+                # Run tests with streaming output (no need to capture for tests)
+                rtn, _, _ = run_command_with_streaming_and_capture(
+                    test_cmd_parts,
+                    shell=True,
+                    quiet=False,  # Stream output in real-time
+                    capture_output=False,  # No need to capture test output
+                )
                 if rtn != 0:
                     print("Error: Tests failed.")
                     sys.exit(1)
