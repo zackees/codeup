@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "codeup"
-version = "1.0.2"
+version = "1.0.3"
 description = "Intelligent git workflow automation tool with AI-powered commit messages"
 readme = "README.md"
-requires-python = ">=3.8.1"
+requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [
     {name = "Zach Vorhies", email = "zach@zachvorhies.com"}
@@ -19,8 +19,6 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -35,6 +33,7 @@ dependencies = [
     "appdirs>=1.4.4",
     "keyring>=24.0.0",
     "semi_secret>=1.0.0",
+    "running-process>=1.0.1",
 ]
 
 [project.optional-dependencies]
@@ -66,7 +65,7 @@ where = ["src"]
 
 [tool.black]
 line-length = 88
-target-version = ['py38']
+target-version = ['py310']
 include = '\.pyi?$'
 
 [tool.isort]
@@ -91,7 +90,7 @@ markers = [
 
 [tool.ruff]
 line-length = 88
-target-version = "py38"
+target-version = "py310"
 
 [tool.ruff.lint]
 select = [
@@ -115,7 +114,7 @@ unfixable = []
 [tool.pyright]
 include = ["src", "tests"]
 exclude = ["**/__pycache__"]
-pythonVersion = "3.8"
+pythonVersion = "3.10"
 typeCheckingMode = "basic"
 reportMissingImports = true
 reportMissingTypeStubs = false

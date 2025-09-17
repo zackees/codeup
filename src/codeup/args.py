@@ -2,25 +2,24 @@
 
 import argparse
 from dataclasses import dataclass
-from typing import Union
 
 
 @dataclass
 class Args:
-    repo: Union[str, None]
+    repo: str | None
     no_push: bool
     verbose: bool
     no_test: bool
     no_lint: bool
     publish: bool
     no_autoaccept: bool
-    message: Union[str, None]
+    message: str | None
     no_rebase: bool
     no_interactive: bool
     log: bool
     just_ai_commit: bool
-    set_key_anthropic: Union[str, None]
-    set_key_openai: Union[str, None]
+    set_key_anthropic: str | None
+    set_key_openai: str | None
 
     def __post_init__(self) -> None:
         assert isinstance(

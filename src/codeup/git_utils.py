@@ -4,9 +4,8 @@ import _thread
 import logging
 import os
 import sys
-from typing import List, Tuple
 
-from codeup.running_process import run_command_with_streaming_and_capture
+from codeup.running_process_adapter import run_command_with_streaming_and_capture
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +80,7 @@ def get_git_diff() -> str:
         return ""
 
 
-def get_staged_files() -> List[str]:
+def get_staged_files() -> list[str]:
     """Get list of staged file names."""
     try:
         print("Running: git diff --cached --name-only")
@@ -100,7 +99,7 @@ def get_staged_files() -> List[str]:
         return []
 
 
-def get_unstaged_files() -> List[str]:
+def get_unstaged_files() -> list[str]:
     """Get list of unstaged file names."""
     try:
         print("Running: git diff --name-only")
@@ -119,7 +118,7 @@ def get_unstaged_files() -> List[str]:
         return []
 
 
-def get_untracked_files() -> List[str]:
+def get_untracked_files() -> list[str]:
     """Get list of untracked files."""
     print("Running: git ls-files --others --exclude-standard")
     exit_code, stdout, stderr = run_command_with_streaming_and_capture(
@@ -136,7 +135,7 @@ def get_main_branch() -> str:
         # Try to get the default branch from remote
         exit_code, stdout, stderr = run_command_with_streaming_and_capture(
             ["git", "symbolic-ref", "refs/remotes/origin/HEAD"],
-            quiet=True,
+            quiet=False,
         )
         if exit_code == 0:
             return stdout.strip().split("/")[-1]
@@ -153,7 +152,7 @@ def get_main_branch() -> str:
         try:
             exit_code, stdout, stderr = run_command_with_streaming_and_capture(
                 ["git", "rev-parse", "--verify", f"origin/{branch}"],
-                quiet=True,
+                quiet=False,
             )
             if exit_code == 0:
                 return branch
@@ -184,7 +183,7 @@ def get_remote_branch_hash(main_branch: str) -> str:
     try:
         exit_code, stdout, stderr = run_command_with_streaming_and_capture(
             ["git", "rev-parse", f"origin/{main_branch}"],
-            quiet=True,
+            quiet=False,
             check=True,
         )
         return stdout.strip()
@@ -202,7 +201,7 @@ def get_merge_base(main_branch: str) -> str:
     try:
         exit_code, stdout, stderr = run_command_with_streaming_and_capture(
             ["git", "merge-base", "HEAD", f"origin/{main_branch}"],
-            quiet=True,
+            quiet=False,
             check=True,
         )
         return stdout.strip()
@@ -230,7 +229,7 @@ def check_rebase_needed(main_branch: str) -> bool:
         return False
 
 
-def attempt_rebase(main_branch: str) -> Tuple[bool, bool]:
+def attempt_rebase(main_branch: str) -> tuple[bool, bool]:
     """
     Attempt a rebase and handle conflicts properly.
 
@@ -243,7 +242,7 @@ def attempt_rebase(main_branch: str) -> Tuple[bool, bool]:
         # Attempt the actual rebase
         exit_code, stdout, stderr = run_command_with_streaming_and_capture(
             ["git", "rebase", f"origin/{main_branch}"],
-            quiet=True,
+            quiet=False,
         )
 
         if exit_code == 0:
@@ -266,7 +265,7 @@ def attempt_rebase(main_branch: str) -> Tuple[bool, bool]:
                 abort_exit_code, abort_stdout, abort_stderr = (
                     run_command_with_streaming_and_capture(
                         ["git", "rebase", "--abort"],
-                        quiet=True,
+                        quiet=False,
                     )
                 )
 
@@ -294,7 +293,7 @@ def attempt_rebase(main_branch: str) -> Tuple[bool, bool]:
         return False, False
 
 
-def git_push() -> Tuple[bool, str]:
+def git_push() -> tuple[bool, str]:
     """
     Attempt git push.
 
@@ -304,7 +303,7 @@ def git_push() -> Tuple[bool, str]:
     try:
         exit_code, stdout, stderr = run_command_with_streaming_and_capture(
             ["git", "push"],
-            quiet=True,
+            quiet=False,
         )
         return exit_code == 0, stderr
     except KeyboardInterrupt:

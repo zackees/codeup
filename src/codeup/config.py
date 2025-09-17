@@ -3,7 +3,6 @@ import json
 import logging
 import os
 import sys
-from typing import Union
 
 from appdirs import user_config_dir  # type: ignore
 
@@ -36,7 +35,7 @@ def create_or_load_config() -> dict:
         return {}
 
 
-def get_anthropic_api_key() -> Union[str, None]:
+def get_anthropic_api_key() -> str | None:
     """Get Anthropic API key from various sources in order of preference."""
     # Use the new keyring module which has config_manager parameter
     import codeup.config as config_module
@@ -45,7 +44,7 @@ def get_anthropic_api_key() -> Union[str, None]:
     return keyring_get_anthropic_key(config_module)
 
 
-def get_openai_api_key() -> Union[str, None]:
+def get_openai_api_key() -> str | None:
     """Get OpenAI API key from various sources in order of preference."""
     # Use the new keyring module which has config_manager parameter
     import codeup.config as config_module
@@ -80,9 +79,7 @@ def _set_key_in_config(key_name: str, api_key: str) -> bool:
         return False
 
 
-def _determine_key_source(
-    config_key: str, env_var: str, key_value: Union[str, None]
-) -> str:
+def _determine_key_source(config_key: str, env_var: str, key_value: str | None) -> str:
     """Determine the source of an API key."""
     if key_value is None:
         return "none"
@@ -100,7 +97,7 @@ def _determine_key_source(
     return "keyring"
 
 
-def _show_key_status(key_name: str, source: str, key_value: Union[str, None]) -> None:
+def _show_key_status(key_name: str, source: str, key_value: str | None) -> None:
     """Show masked key status."""
     if key_value:
         masked_key = (

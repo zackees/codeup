@@ -74,8 +74,9 @@ class CodeupTester(unittest.TestCase):
             # Mock API key functions to return None (disable AI)
             from unittest.mock import patch
 
-            with patch("codeup.config.get_openai_api_key", return_value=None), patch(
-                "codeup.config.get_anthropic_api_key", return_value=None
+            with (
+                patch("codeup.config.get_openai_api_key", return_value=None),
+                patch("codeup.config.get_anthropic_api_key", return_value=None),
             ):
                 try:
                     result = codeup_main()

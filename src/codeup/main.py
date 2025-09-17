@@ -33,9 +33,7 @@ from codeup.git_utils import (
     safe_push,
 )
 from codeup.keyring import set_anthropic_api_key, set_openai_api_key
-from codeup.running_process import (
-    run_command_with_streaming_and_capture,
-)
+from codeup.running_process_adapter import run_command_with_streaming_and_capture
 from codeup.utils import (
     _exec,
     _publish,

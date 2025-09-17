@@ -5,7 +5,6 @@ import logging
 import os
 import sys
 import threading
-from typing import Union
 
 import openai
 
@@ -20,7 +19,7 @@ class InputTimeoutError(Exception):
     pass
 
 
-def _generate_ai_commit_message_anthropic(diff_text: str) -> Union[str, None]:
+def _generate_ai_commit_message_anthropic(diff_text: str) -> str | None:
     """Generate commit message using Anthropic Claude API as fallback."""
     try:
         import anthropic
@@ -85,7 +84,7 @@ Respond with only the commit message, nothing else."""
         return None
 
 
-def _generate_ai_commit_message() -> Union[str, None]:
+def _generate_ai_commit_message() -> str | None:
     """Generate commit message using OpenAI API with Anthropic fallback."""
     try:
         # Import and use existing OpenAI config system
@@ -331,7 +330,7 @@ def _opencommit_or_prompt_for_commit_message(
 
 
 def ai_commit_or_prompt_for_commit_message(
-    no_autoaccept: bool, message: Union[str, None] = None, no_interactive: bool = False
+    no_autoaccept: bool, message: str | None = None, no_interactive: bool = False
 ) -> None:
     """Generate commit message using AI or prompt for manual input."""
     if message:

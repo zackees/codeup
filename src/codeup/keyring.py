@@ -15,7 +15,6 @@ ensuring that keyring functionality never completely fails.
 import logging
 import os
 from pathlib import Path
-from typing import Optional
 
 from semi_secret import SecretStorage, generate_key
 
@@ -62,7 +61,7 @@ class KeyringManager:
 
                 self.storage = SecretStorage(key, salt, storage_path)
 
-            def get_password(self, service: str, username: str) -> Optional[str]:
+            def get_password(self, service: str, username: str) -> str | None:
                 try:
                     return self.storage.get(f"{service}:{username}")
                 except Exception as e:
@@ -91,7 +90,7 @@ class KeyringManager:
         backend = self._get_keyring_backend()
         return backend is not None
 
-    def get_password(self, username: str) -> Optional[str]:
+    def get_password(self, username: str) -> str | None:
         """Get password from keyring backend."""
         backend = self._get_keyring_backend()
         if backend is None:
@@ -134,14 +133,14 @@ class APIKeyManager:
     """High-level API key management with multiple storage layers."""
 
     def __init__(
-        self, config_manager=None, keyring_manager: Optional[KeyringManager] = None
+        self, config_manager=None, keyring_manager: KeyringManager | None = None
     ):
         self.keyring_manager = keyring_manager or KeyringManager()
         self.config_manager = config_manager
 
     def get_api_key(
         self, key_name: str, keyring_username: str, config_key: str, env_var: str
-    ) -> Optional[str]:
+    ) -> str | None:
         """
         Get API key from multiple sources in order of preference:
         1. Config file (if config_manager provided)
@@ -217,7 +216,7 @@ class APIKeyManager:
         logger.error(f"Failed to store {key_name} API key")
         return False
 
-    def get_openai_api_key(self) -> Optional[str]:
+    def get_openai_api_key(self) -> str | None:
         """Get OpenAI API key from configured sources."""
         return self.get_api_key(
             key_name="OpenAI",
@@ -226,7 +225,7 @@ class APIKeyManager:
             env_var="OPENAI_API_KEY",
         )
 
-    def get_anthropic_api_key(self) -> Optional[str]:
+    def get_anthropic_api_key(self) -> str | None:
         """Get Anthropic API key from configured sources."""
         return self.get_api_key(
             key_name="Anthropic",
@@ -274,12 +273,12 @@ def get_default_api_key_manager(config_manager=None) -> APIKeyManager:
 
 
 # Convenience functions for backward compatibility
-def get_openai_api_key(config_manager=None) -> Optional[str]:
+def get_openai_api_key(config_manager=None) -> str | None:
     """Get OpenAI API key - convenience function."""
     return get_default_api_key_manager(config_manager).get_openai_api_key()
 
 
-def get_anthropic_api_key(config_manager=None) -> Optional[str]:
+def get_anthropic_api_key(config_manager=None) -> str | None:
     """Get Anthropic API key - convenience function."""
     return get_default_api_key_manager(config_manager).get_anthropic_api_key()
 

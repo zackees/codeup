@@ -10,12 +10,9 @@ import threading
 import warnings
 from pathlib import Path
 from shutil import which
-from typing import List, Union
 
 from codeup.git_utils import find_git_directory
-from codeup.running_process import (
-    run_command_with_streaming,
-)
+from codeup.running_process_adapter import run_command_with_streaming
 
 logger = logging.getLogger(__name__)
 
@@ -173,15 +170,15 @@ def _to_exec_str(cmd: str, bash: bool) -> str:
     return cmd
 
 
-def _to_exec_args(cmd: str, bash: bool) -> List[str]:
-    """Convert command string to properly escaped argument list for subprocess.
+def _to_exec_args(cmd: str, bash: bool) -> list[str]:
+    """Convert command string to properly escaped argument list for process execution.
 
     Args:
         cmd: The command string to execute
         bash: Whether to run via bash shell
 
     Returns:
-        List of strings suitable for subprocess execution
+        List of strings suitable for RunningProcess execution
     """
     if bash and sys.platform == "win32":
         bash_exe = _find_bash_on_windows()
@@ -204,7 +201,7 @@ def _exec(cmd: str, bash: bool, die=True) -> int:
     try:
         # Use our new streaming process management for better reliability
         if bash:
-            # For bash commands on Windows, split the command properly for subprocess
+            # For bash commands on Windows, split the command properly for process execution
             cmd_parts = shlex.split(cmd)
             logger.debug(f"Command parts for bash: {cmd_parts}")
             rtn = run_command_with_streaming(cmd_parts, shell=True)
@@ -246,7 +243,7 @@ def check_environment() -> Path:
     return Path(git_dir)
 
 
-def get_answer_yes_or_no(question: str, default: Union[bool, str] = "y") -> bool:
+def get_answer_yes_or_no(question: str, default: bool | str = "y") -> bool:
     """Ask a yes/no question and return the answer."""
     # Check if stdin is available
     if not sys.stdin.isatty():
@@ -298,7 +295,7 @@ def get_answer_yes_or_no(question: str, default: Union[bool, str] = "y") -> bool
 
 def configure_logging(enable_file_logging: bool) -> None:
     """Configure logging based on whether file logging should be enabled."""
-    handlers: List[logging.Handler] = [logging.StreamHandler(sys.stderr)]
+    handlers: list[logging.Handler] = [logging.StreamHandler(sys.stderr)]
     if enable_file_logging:
         handlers.append(logging.FileHandler("codeup.log"))
 

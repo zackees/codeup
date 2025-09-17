@@ -5,11 +5,11 @@ patterns like UV's '#!/usr/bin/env -S uv run --python 3.12' accurately.
 """
 
 import shlex
-import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional
+
+from running_process import RunningProcess
 
 
 @dataclass(frozen=True)
@@ -17,7 +17,7 @@ class ShebangResult:
     """Result of shebang parsing containing program and arguments."""
 
     program: str
-    args: List[str]
+    args: list[str]
 
 
 class ShebangProcessor:
@@ -29,7 +29,7 @@ class ShebangProcessor:
         if sys.platform == "win32":
             self._bash_exe = self._find_bash_executable()
 
-    def lex_parse_shebang(self, shebang_line: str) -> Optional[ShebangResult]:
+    def lex_parse_shebang(self, shebang_line: str) -> ShebangResult | None:
         """Lexically parse shebang line using shlex for accurate token extraction.
 
         Args:
@@ -81,7 +81,7 @@ class ShebangProcessor:
             # shlex.split can raise ValueError for malformed input
             return None
 
-    def _parse_env_shebang(self, env_args: List[str]) -> Optional[ShebangResult]:
+    def _parse_env_shebang(self, env_args: list[str]) -> ShebangResult | None:
         """Parse env-based shebang arguments.
 
         Args:
@@ -107,7 +107,7 @@ class ShebangProcessor:
             args = env_args[1:]
             return ShebangResult(program=program, args=args)
 
-    def _find_bash_executable(self) -> Optional[str]:
+    def _find_bash_executable(self) -> str | None:
         """Find bash executable on Windows.
 
         Returns:
@@ -125,12 +125,13 @@ class ShebangProcessor:
 
         for path in possible_paths:
             try:
-                result = subprocess.run(
-                    [path, "--version"], capture_output=True, timeout=5
+                rp = RunningProcess(
+                    [path, "--version"], timeout=5, auto_run=True, check=False
                 )
-                if result.returncode == 0:
+                rp.wait()
+                if rp.returncode == 0:
                     return path
-            except (subprocess.SubprocessError, FileNotFoundError, OSError):
+            except (FileNotFoundError, OSError):
                 continue
 
         return None
@@ -157,7 +158,7 @@ class ShebangProcessor:
         else:
             return interpreter
 
-    def parse_shebang(self, script_path: str) -> Optional[ShebangResult]:
+    def parse_shebang(self, script_path: str) -> ShebangResult | None:
         """Parse the shebang line from a script file using lexical parsing.
 
         Args:
@@ -174,8 +175,8 @@ class ShebangProcessor:
             return None
 
     def get_execution_command(
-        self, script_path: str, script_args: Optional[List[str]] = None
-    ) -> List[str]:
+        self, script_path: str, script_args: list[str] | None = None
+    ) -> list[str]:
         """Get the command needed to execute the script on current platform.
 
         Args:
@@ -198,14 +199,14 @@ class ShebangProcessor:
         return [resolved_program] + shebang_result.args + [script_path] + script_args
 
     def execute_script(
-        self, script_path: str, script_args: Optional[List[str]] = None, **kwargs
+        self, script_path: str, script_args: list[str] | None = None, **kwargs
     ) -> int:
         """Execute script with cross-platform shebang handling.
 
         Args:
             script_path: Path to the script file
             script_args: Additional arguments to pass to the script
-            **kwargs: Additional keyword arguments for subprocess.run
+            **kwargs: Additional keyword arguments (cwd, timeout supported)
 
         Returns:
             Exit code from script execution
@@ -213,9 +214,17 @@ class ShebangProcessor:
         command = self.get_execution_command(script_path, script_args)
 
         try:
-            result = subprocess.run(command, **kwargs)
-            return result.returncode
-        except (subprocess.SubprocessError, FileNotFoundError, OSError) as e:
+            # Filter kwargs that are compatible with RunningProcess
+            rp_kwargs = {}
+            if "cwd" in kwargs:
+                rp_kwargs["cwd"] = kwargs["cwd"]
+            if "timeout" in kwargs:
+                rp_kwargs["timeout"] = kwargs["timeout"]
+
+            rp = RunningProcess(command, auto_run=True, check=False, **rp_kwargs)
+            rp.wait()
+            return rp.returncode or 0
+        except (FileNotFoundError, OSError) as e:
             # Log error and return non-zero exit code
             print(f"Error executing script {script_path}: {e}", file=sys.stderr)
             return 1
