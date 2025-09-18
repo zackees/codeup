@@ -4,10 +4,22 @@ import _thread
 import logging
 import os
 import sys
+from dataclasses import dataclass
 
 from codeup.running_process_adapter import run_command_with_streaming_and_capture
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class RebaseResult:
+    """Result of an enhanced rebase operation with comprehensive safety information."""
+
+    success: bool
+    had_conflicts: bool
+    backup_ref: str
+    error_message: str
+    recovery_commands: list[str]
 
 
 def safe_git_commit(message: str) -> int:
@@ -48,6 +60,7 @@ def get_git_diff_cached() -> str:
         exit_code, stdout, stderr = run_command_with_streaming_and_capture(
             ["git", "diff", "--cached"],
             quiet=True,  # Quiet for AI commit generation
+            raw_output=True,  # Raw output for clean diff
             check=True,
         )
         return stdout.strip()
@@ -66,6 +79,7 @@ def get_git_diff() -> str:
         exit_code, stdout, stderr = run_command_with_streaming_and_capture(
             ["git", "diff"],
             quiet=True,  # Quiet for AI commit generation
+            raw_output=True,  # Raw output for clean diff
             check=True,
         )
         return stdout.strip()
@@ -125,17 +139,7 @@ def get_untracked_files() -> list[str]:
         check=True,
     )
 
-    # Strip timestamp prefixes like "[0.03] " from streaming output
-    files = []
-    for line in stdout.splitlines():
-        line = line.strip()
-        if line:
-            # Remove timestamp prefix if present (format: [X.XX] filename)
-            import re
-
-            cleaned_line = re.sub(r"^\[\d+\.\d+\]\s*", "", line)
-            files.append(cleaned_line)
-    return files
+    return [f.strip() for f in stdout.splitlines() if f.strip()]
 
 
 def get_main_branch() -> str:
@@ -194,6 +198,7 @@ def get_remote_branch_hash(main_branch: str) -> str:
             ["git", "rev-parse", f"origin/{main_branch}"],
             quiet=False,
             check=True,
+            raw_output=True,
         )
         return stdout.strip()
     except KeyboardInterrupt:
@@ -212,6 +217,7 @@ def get_merge_base(main_branch: str) -> str:
             ["git", "merge-base", "HEAD", f"origin/{main_branch}"],
             quiet=False,
             check=True,
+            raw_output=True,
         )
         return stdout.strip()
     except KeyboardInterrupt:
@@ -525,3 +531,362 @@ def safe_push() -> bool:
         logger.error(f"Push error: {e}")
         print(f"Push error: {e}")
         return False
+
+
+def capture_pre_rebase_state() -> str:
+    """Capture current state for potential rollback."""
+    try:
+        exit_code, head_hash, _ = run_command_with_streaming_and_capture(
+            ["git", "rev-parse", "HEAD"], quiet=True, raw_output=True
+        )
+        if exit_code != 0:
+            logger.error(f"Failed to capture pre-rebase state: exit code {exit_code}")
+            return ""
+
+        backup_ref = head_hash.strip()
+
+        # CRITICAL: Validate backup reference exists
+        exit_code, _, _ = run_command_with_streaming_and_capture(
+            ["git", "cat-file", "-e", backup_ref], quiet=True, raw_output=True
+        )
+        if exit_code != 0:
+            logger.error(f"Backup reference {backup_ref} is invalid")
+            return ""
+
+        return backup_ref
+    except KeyboardInterrupt:
+        logger.info("capture_pre_rebase_state interrupted by user")
+        _thread.interrupt_main()
+        return ""
+    except Exception as e:
+        logger.error(f"Error capturing pre-rebase state: {e}")
+        return ""
+
+
+def verify_clean_working_directory() -> bool:
+    """Verify working directory is clean before rebase."""
+    try:
+        exit_code, status_output, _ = run_command_with_streaming_and_capture(
+            ["git", "status", "--porcelain"], quiet=True, raw_output=True
+        )
+        if exit_code == 0:
+            return len(status_output.strip()) == 0
+        else:
+            logger.error(
+                f"Failed to check working directory status: exit code {exit_code}"
+            )
+            return False
+    except KeyboardInterrupt:
+        logger.info("verify_clean_working_directory interrupted by user")
+        _thread.interrupt_main()
+        return False
+    except Exception as e:
+        logger.error(f"Error verifying clean working directory: {e}")
+        return False
+
+
+def emergency_rollback(backup_ref: str) -> bool:
+    """Emergency rollback using reflog recovery."""
+    if not backup_ref:
+        logger.error("No backup reference available for emergency rollback")
+        return False
+
+    try:
+        # CRITICAL: Check if rebase is in progress and abort first
+        exit_code, status_output, _ = run_command_with_streaming_and_capture(
+            ["git", "status", "--porcelain=v1"], quiet=True, raw_output=True
+        )
+        if exit_code == 0 and "rebase in progress" in status_output.lower():
+            logger.info("Aborting active rebase before emergency rollback")
+            run_command_with_streaming_and_capture(
+                ["git", "rebase", "--abort"], quiet=False
+            )
+
+        print(f"Performing emergency rollback to {backup_ref[:8]}...")
+        exit_code, _, stderr = run_command_with_streaming_and_capture(
+            ["git", "reset", "--hard", backup_ref], quiet=False
+        )
+        if exit_code == 0:
+            print("Emergency rollback completed successfully")
+            return True
+        else:
+            logger.error(f"Emergency rollback failed: {stderr}")
+            return False
+    except KeyboardInterrupt:
+        logger.info("emergency_rollback interrupted by user")
+        _thread.interrupt_main()
+        return False
+    except Exception as e:
+        logger.error(f"Error during emergency rollback: {e}")
+        return False
+
+
+def verify_state_matches_backup(backup_ref: str) -> bool:
+    """Verify current HEAD matches backup AND working directory is clean."""
+    if not backup_ref:
+        return False
+
+    try:
+        # Check HEAD hash
+        exit_code, current_ref, _ = run_command_with_streaming_and_capture(
+            ["git", "rev-parse", "HEAD"], quiet=True, raw_output=True
+        )
+        if exit_code != 0 or current_ref.strip() != backup_ref:
+            return False
+
+        # CRITICAL: Also verify working directory is clean
+        return verify_clean_working_directory()
+    except KeyboardInterrupt:
+        logger.info("verify_state_matches_backup interrupted by user")
+        _thread.interrupt_main()
+        return False
+    except Exception as e:
+        logger.error(f"Error verifying state matches backup: {e}")
+        return False
+
+
+def execute_enhanced_abort(backup_ref: str) -> bool:
+    """Enhanced rebase abort with state verification."""
+    try:
+        print("Aborting rebase and restoring clean state...")
+        abort_exit_code, _, abort_stderr = run_command_with_streaming_and_capture(
+            ["git", "rebase", "--abort"], quiet=False
+        )
+
+        if abort_exit_code == 0:
+            if verify_state_matches_backup(backup_ref):
+                print("Rebase aborted successfully, clean state restored")
+                return True
+            else:
+                logger.warning(
+                    "Rebase aborted but state verification failed, attempting emergency rollback"
+                )
+                return emergency_rollback(backup_ref)
+        else:
+            logger.error(f"Rebase abort failed: {abort_stderr}")
+            print("Rebase abort failed, attempting emergency rollback...")
+            return emergency_rollback(backup_ref)
+
+    except KeyboardInterrupt:
+        logger.info("execute_enhanced_abort interrupted by user")
+        _thread.interrupt_main()
+        return False
+    except Exception as e:
+        logger.error(f"Error during enhanced abort: {e}")
+        return emergency_rollback(backup_ref)
+
+
+def generate_recovery_commands(backup_ref: str, main_branch: str) -> list[str]:
+    """Generate recovery commands for manual intervention."""
+    commands = [
+        "# Manual recovery options:",
+        f"git reset --hard {backup_ref}  # Rollback to pre-rebase state",
+        f"git rebase origin/{main_branch}  # Retry rebase manually",
+        "git reflog  # View detailed history for recovery",
+        "git status  # Check current state",
+    ]
+
+    if backup_ref:
+        commands.insert(1, f"# Backup reference: {backup_ref[:8]}...")
+
+    return commands
+
+
+def generate_emergency_recovery_commands(backup_ref: str) -> list[str]:
+    """Generate emergency recovery commands for critical failures."""
+    commands = [
+        "# Emergency recovery options:",
+        "git status  # Check current repository state",
+        "git reflog --oneline -10  # View recent ref changes",
+    ]
+
+    if backup_ref:
+        commands.extend(
+            [
+                f"git reset --hard {backup_ref}  # Force rollback to backup state",
+                f"# Backup reference: {backup_ref[:8]}...",
+            ]
+        )
+    else:
+        commands.extend(
+            [
+                "git reset --hard ORIG_HEAD  # Try rolling back to previous HEAD",
+                "git fsck --lost-found  # Find any orphaned commits",
+            ]
+        )
+
+    return commands
+
+
+def detect_rebase_conflicts(stdout: str, stderr: str) -> bool:
+    """Enhanced conflict detection for rebase operations."""
+    conflict_indicators = [
+        "conflict",
+        "failed to merge",
+        "merge conflict",
+        "automatic merge failed",
+        "resolve conflicts",
+        "fix conflicts",
+        # CRITICAL: Add missing patterns
+        "CONFLICT (content)",
+        "both modified",
+        "both added",
+        "added by us",
+        "added by them",
+        "deleted by us",
+        "deleted by them",
+    ]
+
+    combined_output = (stdout + " " + stderr).lower()
+    return any(indicator in combined_output for indicator in conflict_indicators)
+
+
+def verify_rebase_success(main_branch: str) -> bool:
+    """Verify that rebase completed successfully and working directory is clean."""
+    try:
+        if not verify_clean_working_directory():
+            logger.warning("Working directory not clean after rebase")
+            return False
+
+        exit_code, _, _ = run_command_with_streaming_and_capture(
+            ["git", "rev-parse", "--verify", "HEAD"], quiet=True, raw_output=True
+        )
+        if exit_code != 0:
+            logger.error("HEAD reference is invalid after rebase")
+            return False
+
+        return True
+    except KeyboardInterrupt:
+        logger.info("verify_rebase_success interrupted by user")
+        _thread.interrupt_main()
+        return False
+    except Exception as e:
+        logger.error(f"Error verifying rebase success: {e}")
+        return False
+
+
+def enhanced_attempt_rebase(main_branch: str) -> RebaseResult:
+    """Enhanced rebase with comprehensive safety mechanisms."""
+    backup_ref = ""
+
+    try:
+        # Phase 1: Pre-rebase safety capture
+        print("Capturing pre-rebase state for safety...")
+        backup_ref = capture_pre_rebase_state()
+        if not backup_ref:
+            return RebaseResult(
+                success=False,
+                had_conflicts=False,
+                backup_ref="",
+                error_message="Failed to capture pre-rebase state",
+                recovery_commands=["git status", "git reflog"],
+            )
+
+        # Phase 2: Verify clean working directory
+        if not verify_clean_working_directory():
+            return RebaseResult(
+                success=False,
+                had_conflicts=False,
+                backup_ref=backup_ref,
+                error_message="Working directory not clean",
+                recovery_commands=["git status", "git stash", "git reset --hard HEAD"],
+            )
+
+        # Phase 3: Execute fetch to ensure we have latest remote refs
+        print("Fetching latest changes from remote...")
+        fetch_exit_code = git_fetch()
+        if fetch_exit_code != 0:
+            return RebaseResult(
+                success=False,
+                had_conflicts=False,
+                backup_ref=backup_ref,
+                error_message="Failed to fetch from remote",
+                recovery_commands=generate_recovery_commands(backup_ref, main_branch),
+            )
+
+        # Phase 4: Execute atomic rebase
+        print(f"Attempting rebase onto origin/{main_branch}...")
+        exit_code, stdout, stderr = run_command_with_streaming_and_capture(
+            ["git", "rebase", f"origin/{main_branch}"],
+            quiet=False,
+        )
+
+        if exit_code == 0:
+            # Success path - verify final state
+            if verify_rebase_success(main_branch):
+                print(f"Successfully rebased onto origin/{main_branch}")
+                return RebaseResult(
+                    success=True,
+                    had_conflicts=False,
+                    backup_ref=backup_ref,
+                    error_message="",
+                    recovery_commands=[],
+                )
+            else:
+                # Rebase appeared successful but verification failed
+                logger.warning("Rebase completed but verification failed")
+                return RebaseResult(
+                    success=False,
+                    had_conflicts=False,
+                    backup_ref=backup_ref,
+                    error_message="Rebase completed but final state verification failed",
+                    recovery_commands=generate_recovery_commands(
+                        backup_ref, main_branch
+                    ),
+                )
+
+        # Conflict detection with enhanced recovery
+        if detect_rebase_conflicts(stdout, stderr):
+            logger.info("Rebase conflicts detected, executing enhanced abort")
+            recovery_success = execute_enhanced_abort(backup_ref)
+
+            if recovery_success:
+                print("Conflicts detected and clean state restored")
+            else:
+                print(
+                    "Conflicts detected but recovery failed - manual intervention required"
+                )
+
+            return RebaseResult(
+                success=False,
+                had_conflicts=True,
+                backup_ref=backup_ref,
+                error_message="Rebase conflicts detected",
+                recovery_commands=generate_recovery_commands(backup_ref, main_branch),
+            )
+        else:
+            # Rebase failed for other reasons
+            logger.error(f"Rebase failed: exit code {exit_code}, stderr: {stderr}")
+            recovery_success = execute_enhanced_abort(backup_ref)
+
+            return RebaseResult(
+                success=False,
+                had_conflicts=False,
+                backup_ref=backup_ref,
+                error_message=f"Rebase failed: {stderr}",
+                recovery_commands=generate_recovery_commands(backup_ref, main_branch),
+            )
+
+    except KeyboardInterrupt:
+        logger.info("enhanced_attempt_rebase interrupted by user")
+        _thread.interrupt_main()
+        # Attempt emergency recovery on interrupt
+        emergency_rollback(backup_ref)
+        return RebaseResult(
+            success=False,
+            had_conflicts=False,
+            backup_ref=backup_ref,
+            error_message="Rebase interrupted by user",
+            recovery_commands=generate_emergency_recovery_commands(backup_ref),
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error during enhanced rebase: {e}")
+        # Emergency rollback for any unexpected failures
+        emergency_rollback(backup_ref)
+        return RebaseResult(
+            success=False,
+            had_conflicts=False,
+            backup_ref=backup_ref,
+            error_message=f"Rebase failed: {e}",
+            recovery_commands=generate_emergency_recovery_commands(backup_ref),
+        )

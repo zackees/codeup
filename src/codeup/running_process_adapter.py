@@ -5,7 +5,8 @@ Adapter module to bridge the old running_process interface with the new package.
 from pathlib import Path
 from typing import Any
 
-from running_process import RunningProcess, TimeDeltaFormatter
+from running_process import RunningProcess
+from running_process.output_formatter import NullOutputFormatter
 
 # Timeout constants
 LINE_ITERATION_TIMEOUT = 300.0  # 5 minutes for line iteration
@@ -25,7 +26,7 @@ def run_command_with_streaming(
             timeout=timeout,
             auto_run=True,
             check=False,
-            output_formatter=TimeDeltaFormatter(),
+            output_formatter=NullOutputFormatter(),
         )
     except FileNotFoundError:
         return 127
@@ -61,10 +62,23 @@ def run_command_with_streaming_and_capture(
     cwd: str | None = None,
     timeout: int | None = None,
     quiet: bool = False,
+    raw_output: bool = False,
     **kwargs: Any,
 ) -> "tuple[int, str, str]":
-    """Run command with streaming and capture output."""
+    """Run command with streaming and capture output.
+
+    Args:
+        cmd: Command to execute
+        cwd: Working directory
+        timeout: Timeout in seconds
+        quiet: If True, don't print output to console
+        raw_output: Deprecated parameter (all output is now raw without timestamps)
+        **kwargs: Additional arguments
+    """
     stdout_lines = []
+
+    # Use NullOutputFormatter for all commands since git commands are fast
+    formatter = NullOutputFormatter()
 
     rp = RunningProcess(
         command=cmd,
@@ -72,7 +86,7 @@ def run_command_with_streaming_and_capture(
         timeout=timeout,
         auto_run=True,
         check=False,
-        output_formatter=TimeDeltaFormatter(),
+        output_formatter=formatter,
     )
 
     try:
@@ -131,7 +145,7 @@ class ProcessManager:
         self.process = RunningProcess(
             command=self.cmd,
             auto_run=True,
-            output_formatter=TimeDeltaFormatter(),
+            output_formatter=NullOutputFormatter(),
             **self.kwargs,
         )
         return self

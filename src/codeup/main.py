@@ -20,8 +20,8 @@ import traceback
 from codeup.aicommit import ai_commit_or_prompt_for_commit_message
 from codeup.args import Args
 from codeup.git_utils import (
-    attempt_rebase,
     check_rebase_needed,
+    enhanced_attempt_rebase,
     get_current_branch,
     get_git_status,
     get_main_branch,
@@ -276,44 +276,58 @@ def _main_worker() -> int:
 
                     if args.no_interactive:
                         print(
-                            f"Non-interactive mode: attempting automatic rebase onto origin/{main_branch}"
+                            f"Non-interactive mode: attempting enhanced safe rebase onto origin/{main_branch}"
                         )
-                        success, had_conflicts = attempt_rebase(main_branch)
-                        if success:
+                        result = enhanced_attempt_rebase(main_branch)
+
+                        if result.success:
                             print(f"Successfully rebased onto origin/{main_branch}")
-                        elif had_conflicts:
+                        elif result.had_conflicts:
                             print(
                                 "Error: Rebase failed due to conflicts that need manual resolution"
                             )
-                            print(f"Please run: git rebase origin/{main_branch}")
-                            print(
-                                "Then resolve any conflicts manually and re-run codeup"
-                            )
+                            print("Remote repository has conflicting changes.")
+                            print("\nRecovery commands:")
+                            for cmd in result.recovery_commands:
+                                print(f"  {cmd}")
                             return 1
                         else:
-                            print("Error: Rebase failed for unknown reasons")
+                            print(f"Error: {result.error_message}")
+                            if result.recovery_commands:
+                                print("\nRecovery commands:")
+                                for cmd in result.recovery_commands:
+                                    print(f"  {cmd}")
                             return 1
                     else:
                         proceed = get_answer_yes_or_no(
-                            f"Attempt rebase onto origin/{main_branch}?", "y"
+                            f"Attempt enhanced safe rebase onto origin/{main_branch}?",
+                            "y",
                         )
                         if not proceed:
                             print("Skipping rebase.")
                             return 1
 
-                        # Perform the rebase
-                        success, had_conflicts = attempt_rebase(main_branch)
-                        if success:
+                        # Perform the enhanced rebase
+                        result = enhanced_attempt_rebase(main_branch)
+                        if result.success:
                             print(f"Successfully rebased onto origin/{main_branch}")
-                        elif had_conflicts:
+                        elif result.had_conflicts:
                             print(
-                                "Rebase failed due to conflicts. Please resolve conflicts manually and try again."
+                                "Rebase failed due to conflicts that need manual resolution."
                             )
-                            print(f"Run: git rebase origin/{main_branch}")
-                            print("Then resolve conflicts and re-run codeup")
+                            print(
+                                "The repository has been restored to its original state."
+                            )
+                            print("\nRecovery commands:")
+                            for cmd in result.recovery_commands:
+                                print(f"  {cmd}")
                             return 1
                         else:
-                            print("Rebase failed for other reasons")
+                            print(f"Rebase failed: {result.error_message}")
+                            if result.recovery_commands:
+                                print("\nRecovery commands:")
+                                for cmd in result.recovery_commands:
+                                    print(f"  {cmd}")
                             return 1
 
             # Now attempt the push
