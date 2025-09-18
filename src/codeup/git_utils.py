@@ -483,42 +483,15 @@ def safe_rebase_try() -> bool:
 
 
 def safe_push() -> bool:
-    """Attempt to push safely, with automatic rebase if safe to do so."""
+    """Attempt to push safely. Assumes rebase has already been handled if needed."""
     try:
-        # First, try a normal push
+        # Try a push - rebase should have been handled earlier in the workflow
         print("Attempting to push to remote...")
         success, stderr = git_push()
 
         if success:
             print("Successfully pushed to remote")
             return True
-
-        # If normal push failed, check if it's due to non-fast-forward
-        stderr_output = stderr.lower()
-
-        if "non-fast-forward" in stderr_output or "rejected" in stderr_output:
-            print(
-                "Push rejected (non-fast-forward). Repository needs to be updated first."
-            )
-            print(
-                "This indicates the remote branch has changes that need to be integrated."
-            )
-
-            # Attempt safe rebase if possible
-            if safe_rebase_try():
-                # Rebase succeeded, try push again
-                print("Rebase successful, attempting push again...")
-                success, stderr = git_push()
-
-                if success:
-                    print("Successfully pushed to remote after rebase")
-                    return True
-                else:
-                    print(f"Push failed after rebase: {stderr}")
-                    return False
-            else:
-                # Rebase failed or not safe, provide manual instructions
-                return False
         else:
             print(f"Push failed: {stderr}")
             return False

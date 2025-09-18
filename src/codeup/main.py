@@ -268,8 +268,13 @@ def _main_worker() -> int:
             if not args.no_rebase:
                 main_branch = get_main_branch()
                 current_branch = get_current_branch()
+                rebase_needed = check_rebase_needed(main_branch)
 
-                if current_branch != main_branch and check_rebase_needed(main_branch):
+                print(f"Current branch: {current_branch}")
+                print(f"Main branch: {main_branch}")
+                print(f"Rebase needed: {rebase_needed}")
+
+                if current_branch != main_branch and rebase_needed:
                     print(
                         f"Current branch '{current_branch}' is behind origin/{main_branch}"
                     )
@@ -332,8 +337,36 @@ def _main_worker() -> int:
 
             # Now attempt the push
             if not safe_push():
-                print("Push failed. You may need to resolve conflicts manually.")
-                return 1
+                # If push still fails, check if we need to try the enhanced rebase approach
+                print("Push failed. Checking if enhanced rebase is needed...")
+
+                # Refresh the rebase status check after potential changes
+                main_branch = get_main_branch()
+                if check_rebase_needed(main_branch):
+                    print("Repository is behind remote - attempting enhanced rebase...")
+                    result = enhanced_attempt_rebase(main_branch)
+
+                    if result.success:
+                        print("Enhanced rebase successful, attempting push again...")
+                        if safe_push():
+                            print("Successfully pushed after enhanced rebase")
+                        else:
+                            print(
+                                "Push failed even after enhanced rebase. Manual intervention required."
+                            )
+                            return 1
+                    else:
+                        print(f"Enhanced rebase failed: {result.error_message}")
+                        if result.recovery_commands:
+                            print("\nRecovery commands:")
+                            for cmd in result.recovery_commands:
+                                print(f"  {cmd}")
+                        return 1
+                else:
+                    print(
+                        "Push failed for non-rebase reasons. Manual intervention required."
+                    )
+                    return 1
         if args.publish:
             _publish()
     except KeyboardInterrupt:
