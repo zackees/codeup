@@ -191,11 +191,37 @@ def get_current_branch() -> str:
     return stdout.strip()
 
 
-def get_remote_branch_hash(main_branch: str) -> str:
-    """Get the hash of the remote main branch."""
+def get_upstream_branch() -> str:
+    """Get the upstream tracking branch for the current branch."""
     try:
         exit_code, stdout, stderr = run_command_with_streaming_and_capture(
-            ["git", "rev-parse", f"origin/{main_branch}"],
+            ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+            quiet=True,
+        )
+        if exit_code == 0:
+            return stdout.strip()
+        else:
+            return ""
+    except KeyboardInterrupt:
+        logger.info("get_upstream_branch interrupted by user")
+        _thread.interrupt_main()
+        return ""
+    except Exception as e:
+        logger.error(f"Error getting upstream branch: {e}")
+        return ""
+
+
+def get_remote_branch_hash(target_branch: str) -> str:
+    """Get the hash of the remote target branch."""
+    try:
+        # Handle both origin/branch format and just branch format
+        remote_ref = (
+            target_branch
+            if target_branch.startswith("origin/")
+            else f"origin/{target_branch}"
+        )
+        exit_code, stdout, stderr = run_command_with_streaming_and_capture(
+            ["git", "rev-parse", remote_ref],
             quiet=False,
             check=True,
             raw_output=True,
@@ -210,11 +236,17 @@ def get_remote_branch_hash(main_branch: str) -> str:
         return ""
 
 
-def get_merge_base(main_branch: str) -> str:
-    """Get the merge base between HEAD and the remote main branch."""
+def get_merge_base(target_branch: str) -> str:
+    """Get the merge base between HEAD and the remote target branch."""
     try:
+        # Handle both origin/branch format and just branch format
+        remote_ref = (
+            target_branch
+            if target_branch.startswith("origin/")
+            else f"origin/{target_branch}"
+        )
         exit_code, stdout, stderr = run_command_with_streaming_and_capture(
-            ["git", "merge-base", "HEAD", f"origin/{main_branch}"],
+            ["git", "merge-base", "HEAD", remote_ref],
             quiet=False,
             check=True,
             raw_output=True,
@@ -229,11 +261,11 @@ def get_merge_base(main_branch: str) -> str:
         return ""
 
 
-def check_rebase_needed(main_branch: str) -> bool:
-    """Check if current branch is behind the remote main branch."""
+def check_rebase_needed(target_branch: str) -> bool:
+    """Check if current branch is behind the remote target branch."""
     try:
-        remote_hash = get_remote_branch_hash(main_branch)
-        merge_base = get_merge_base(main_branch)
+        remote_hash = get_remote_branch_hash(target_branch)
+        merge_base = get_merge_base(target_branch)
         return merge_base != remote_hash
     except KeyboardInterrupt:
         logger.info("check_rebase_needed interrupted by user")
@@ -244,7 +276,7 @@ def check_rebase_needed(main_branch: str) -> bool:
         return False
 
 
-def attempt_rebase(main_branch: str) -> tuple[bool, bool]:
+def attempt_rebase(target_branch: str) -> tuple[bool, bool]:
     """
     Attempt a rebase and handle conflicts properly.
 
@@ -254,15 +286,22 @@ def attempt_rebase(main_branch: str) -> tuple[bool, bool]:
         - had_conflicts: True if conflicts were encountered (and rebase was aborted)
     """
     try:
+        # Handle both origin/branch format and just branch format
+        remote_ref = (
+            target_branch
+            if target_branch.startswith("origin/")
+            else f"origin/{target_branch}"
+        )
+
         # Attempt the actual rebase
         exit_code, stdout, stderr = run_command_with_streaming_and_capture(
-            ["git", "rebase", f"origin/{main_branch}"],
+            ["git", "rebase", remote_ref],
             quiet=False,
         )
 
         if exit_code == 0:
             # Rebase succeeded
-            logger.info(f"Successfully rebased onto origin/{main_branch}")
+            logger.info(f"Successfully rebased onto {remote_ref}")
             return True, False
         else:
             # Rebase failed, check if it's due to conflicts
@@ -310,16 +349,31 @@ def attempt_rebase(main_branch: str) -> tuple[bool, bool]:
 
 def git_push() -> tuple[bool, str]:
     """
-    Attempt git push.
+    Attempt git push. Sets upstream tracking for new branches automatically.
 
     Returns:
         Tuple[bool, str]: (success, error_message)
     """
     try:
-        exit_code, stdout, stderr = run_command_with_streaming_and_capture(
-            ["git", "push"],
-            quiet=False,
-        )
+        current_branch = get_current_branch()
+        upstream_branch = get_upstream_branch()
+
+        # If no upstream is set, try to push with --set-upstream
+        if not upstream_branch:
+            print(
+                f"No upstream set for branch '{current_branch}', setting upstream to origin/{current_branch}"
+            )
+            exit_code, stdout, stderr = run_command_with_streaming_and_capture(
+                ["git", "push", "--set-upstream", "origin", current_branch],
+                quiet=False,
+            )
+        else:
+            # Normal push when upstream is already set
+            exit_code, stdout, stderr = run_command_with_streaming_and_capture(
+                ["git", "push"],
+                quiet=False,
+            )
+
         return exit_code == 0, stderr
     except KeyboardInterrupt:
         logger.info("git_push interrupted by user")
@@ -438,34 +492,49 @@ def git_fetch() -> int:
 def safe_rebase_try() -> bool:
     """Attempt a safe rebase using proper git commands. Returns True if successful or no rebase needed."""
     try:
-        # Get the main branch
-        main_branch = get_main_branch()
         current_branch = get_current_branch()
+        upstream_branch = get_upstream_branch()
+        main_branch = get_main_branch()
 
-        # If we're on the main branch, no rebase needed
-        if current_branch == main_branch:
-            return True
+        # Determine the target branch for rebase
+        if upstream_branch:
+            # Use the upstream tracking branch if it exists
+            target_branch = upstream_branch
+            print(f"Current branch '{current_branch}' tracks '{upstream_branch}'")
+        else:
+            # Fallback to main branch behavior
+            target_branch = main_branch
+            print(
+                f"Current branch '{current_branch}' has no upstream, using main branch '{main_branch}'"
+            )
+
+            # If we're on the main branch and no upstream, no rebase needed
+            if current_branch == main_branch:
+                return True
 
         # Check if rebase is needed
-        if not check_rebase_needed(main_branch):
-            print(f"Branch is already up to date with origin/{main_branch}")
+        if not check_rebase_needed(target_branch):
+            print(f"Branch is already up to date with origin/{target_branch}")
             return True
 
         # Attempt the rebase directly - this will handle conflicts properly
-        print(f"Attempting rebase onto origin/{main_branch}...")
-        success, had_conflicts = attempt_rebase(main_branch)
+        remote_ref = (
+            target_branch
+            if target_branch.startswith("origin/")
+            else f"origin/{target_branch}"
+        )
+        print(f"Attempting rebase onto {remote_ref}...")
+        success, had_conflicts = attempt_rebase(target_branch)
 
         if success:
-            print(f"Successfully rebased onto origin/{main_branch}")
+            print(f"Successfully rebased onto {remote_ref}")
             return True
         elif had_conflicts:
-            print(
-                f"Cannot automatically rebase: conflicts detected with origin/{main_branch}"
-            )
+            print(f"Cannot automatically rebase: conflicts detected with {remote_ref}")
             print(
                 "Remote repository has conflicting changes that must be manually resolved."
             )
-            print(f"Please run: git rebase origin/{main_branch}")
+            print(f"Please run: git rebase {remote_ref}")
             print("Then resolve any conflicts manually.")
             return False
         else:
@@ -649,12 +718,18 @@ def execute_enhanced_abort(backup_ref: str) -> bool:
         return emergency_rollback(backup_ref)
 
 
-def generate_recovery_commands(backup_ref: str, main_branch: str) -> list[str]:
+def generate_recovery_commands(backup_ref: str, target_branch: str) -> list[str]:
     """Generate recovery commands for manual intervention."""
+    # Handle both origin/branch format and just branch format
+    remote_ref = (
+        target_branch
+        if target_branch.startswith("origin/")
+        else f"origin/{target_branch}"
+    )
     commands = [
         "# Manual recovery options:",
         f"git reset --hard {backup_ref}  # Rollback to pre-rebase state",
-        f"git rebase origin/{main_branch}  # Retry rebase manually",
+        f"git rebase {remote_ref}  # Retry rebase manually",
         "git reflog  # View detailed history for recovery",
         "git status  # Check current state",
     ]
@@ -714,7 +789,7 @@ def detect_rebase_conflicts(stdout: str, stderr: str) -> bool:
     return any(indicator in combined_output for indicator in conflict_indicators)
 
 
-def verify_rebase_success(main_branch: str) -> bool:
+def verify_rebase_success(target_branch: str) -> bool:
     """Verify that rebase completed successfully and working directory is clean."""
     try:
         if not verify_clean_working_directory():
@@ -738,7 +813,7 @@ def verify_rebase_success(main_branch: str) -> bool:
         return False
 
 
-def enhanced_attempt_rebase(main_branch: str) -> RebaseResult:
+def enhanced_attempt_rebase(target_branch: str) -> RebaseResult:
     """Enhanced rebase with comprehensive safety mechanisms."""
     backup_ref = ""
 
@@ -774,20 +849,26 @@ def enhanced_attempt_rebase(main_branch: str) -> RebaseResult:
                 had_conflicts=False,
                 backup_ref=backup_ref,
                 error_message="Failed to fetch from remote",
-                recovery_commands=generate_recovery_commands(backup_ref, main_branch),
+                recovery_commands=generate_recovery_commands(backup_ref, target_branch),
             )
 
         # Phase 4: Execute atomic rebase
-        print(f"Attempting rebase onto origin/{main_branch}...")
+        # Handle both origin/branch format and just branch format
+        remote_ref = (
+            target_branch
+            if target_branch.startswith("origin/")
+            else f"origin/{target_branch}"
+        )
+        print(f"Attempting rebase onto {remote_ref}...")
         exit_code, stdout, stderr = run_command_with_streaming_and_capture(
-            ["git", "rebase", f"origin/{main_branch}"],
+            ["git", "rebase", remote_ref],
             quiet=False,
         )
 
         if exit_code == 0:
             # Success path - verify final state
-            if verify_rebase_success(main_branch):
-                print(f"Successfully rebased onto origin/{main_branch}")
+            if verify_rebase_success(target_branch):
+                print(f"Successfully rebased onto {remote_ref}")
                 return RebaseResult(
                     success=True,
                     had_conflicts=False,
@@ -804,7 +885,7 @@ def enhanced_attempt_rebase(main_branch: str) -> RebaseResult:
                     backup_ref=backup_ref,
                     error_message="Rebase completed but final state verification failed",
                     recovery_commands=generate_recovery_commands(
-                        backup_ref, main_branch
+                        backup_ref, target_branch
                     ),
                 )
 
@@ -825,7 +906,7 @@ def enhanced_attempt_rebase(main_branch: str) -> RebaseResult:
                 had_conflicts=True,
                 backup_ref=backup_ref,
                 error_message="Rebase conflicts detected",
-                recovery_commands=generate_recovery_commands(backup_ref, main_branch),
+                recovery_commands=generate_recovery_commands(backup_ref, target_branch),
             )
         else:
             # Rebase failed for other reasons
@@ -837,7 +918,7 @@ def enhanced_attempt_rebase(main_branch: str) -> RebaseResult:
                 had_conflicts=False,
                 backup_ref=backup_ref,
                 error_message=f"Rebase failed: {stderr}",
-                recovery_commands=generate_recovery_commands(backup_ref, main_branch),
+                recovery_commands=generate_recovery_commands(backup_ref, target_branch),
             )
 
     except KeyboardInterrupt:

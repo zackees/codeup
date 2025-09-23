@@ -26,6 +26,7 @@ from codeup.git_utils import (
     get_git_status,
     get_main_branch,
     get_untracked_files,
+    get_upstream_branch,
     git_add_all,
     git_add_file,
     git_fetch,
@@ -266,74 +267,92 @@ def _main_worker() -> int:
 
             # Check if rebase is needed and handle it
             if not args.no_rebase:
-                main_branch = get_main_branch()
                 current_branch = get_current_branch()
-                rebase_needed = check_rebase_needed(main_branch)
+                upstream_branch = get_upstream_branch()
+                main_branch = get_main_branch()
 
-                print(f"Current branch: {current_branch}")
-                print(f"Main branch: {main_branch}")
-                print(f"Rebase needed: {rebase_needed}")
+                # Determine the target branch for rebase
+                if upstream_branch:
+                    # Use the upstream tracking branch if it exists
+                    target_branch = upstream_branch
+                    print(f"Current branch: {current_branch}")
+                    print(f"Upstream branch: {upstream_branch}")
+                else:
+                    # Fallback to main branch behavior
+                    target_branch = main_branch
+                    print(f"Current branch: {current_branch}")
+                    print(f"Main branch: {main_branch} (no upstream tracking)")
 
-                if current_branch != main_branch and rebase_needed:
-                    print(
-                        f"Current branch '{current_branch}' is behind origin/{main_branch}"
-                    )
+                # Skip rebase if we're on the main branch and no upstream is set
+                should_skip_rebase = (
+                    not upstream_branch and current_branch == main_branch
+                )
 
-                    if args.no_interactive:
+                if not should_skip_rebase:
+                    rebase_needed = check_rebase_needed(target_branch)
+                    print(f"Rebase needed: {rebase_needed}")
+
+                    if rebase_needed:
+                        remote_ref = (
+                            target_branch
+                            if target_branch.startswith("origin/")
+                            else f"origin/{target_branch}"
+                        )
                         print(
-                            f"Non-interactive mode: attempting enhanced safe rebase onto origin/{main_branch}"
+                            f"Current branch '{current_branch}' is behind {remote_ref}"
                         )
-                        result = enhanced_attempt_rebase(main_branch)
 
-                        if result.success:
-                            print(f"Successfully rebased onto origin/{main_branch}")
-                        elif result.had_conflicts:
+                        if args.no_interactive:
                             print(
-                                "Error: Rebase failed due to conflicts that need manual resolution"
+                                f"Non-interactive mode: attempting enhanced safe rebase onto {remote_ref}"
                             )
-                            print("Remote repository has conflicting changes.")
-                            print("\nRecovery commands:")
-                            for cmd in result.recovery_commands:
-                                print(f"  {cmd}")
-                            return 1
-                        else:
-                            print(f"Error: {result.error_message}")
-                            if result.recovery_commands:
+                            result = enhanced_attempt_rebase(target_branch)
+
+                            if result.success:
+                                print(f"Successfully rebased onto {remote_ref}")
+                            elif result.had_conflicts:
+                                print(
+                                    "Error: Rebase failed due to conflicts that need manual resolution"
+                                )
+                                print("Remote repository has conflicting changes.")
                                 print("\nRecovery commands:")
                                 for cmd in result.recovery_commands:
                                     print(f"  {cmd}")
-                            return 1
-                    else:
-                        proceed = get_answer_yes_or_no(
-                            f"Attempt enhanced safe rebase onto origin/{main_branch}?",
-                            "y",
-                        )
-                        if not proceed:
-                            print("Skipping rebase.")
-                            return 1
-
-                        # Perform the enhanced rebase
-                        result = enhanced_attempt_rebase(main_branch)
-                        if result.success:
-                            print(f"Successfully rebased onto origin/{main_branch}")
-                        elif result.had_conflicts:
-                            print(
-                                "Rebase failed due to conflicts that need manual resolution."
-                            )
-                            print(
-                                "The repository has been restored to its original state."
-                            )
-                            print("\nRecovery commands:")
-                            for cmd in result.recovery_commands:
-                                print(f"  {cmd}")
-                            return 1
+                                return 1
+                            else:
+                                print(f"Error: {result.error_message}")
+                                if result.recovery_commands:
+                                    print("\nRecovery commands:")
+                                    for cmd in result.recovery_commands:
+                                        print(f"  {cmd}")
+                                return 1
                         else:
-                            print(f"Rebase failed: {result.error_message}")
-                            if result.recovery_commands:
+                            print(
+                                f"Performing enhanced safe rebase onto {remote_ref}..."
+                            )
+
+                            # Perform the enhanced rebase
+                            result = enhanced_attempt_rebase(target_branch)
+                            if result.success:
+                                print(f"Successfully rebased onto {remote_ref}")
+                            elif result.had_conflicts:
+                                print(
+                                    "Rebase failed due to conflicts that need manual resolution."
+                                )
+                                print(
+                                    "The repository has been restored to its original state."
+                                )
                                 print("\nRecovery commands:")
                                 for cmd in result.recovery_commands:
                                     print(f"  {cmd}")
-                            return 1
+                                return 1
+                            else:
+                                print(f"Rebase failed: {result.error_message}")
+                                if result.recovery_commands:
+                                    print("\nRecovery commands:")
+                                    for cmd in result.recovery_commands:
+                                        print(f"  {cmd}")
+                                return 1
 
             # Now attempt the push
             if not safe_push():
@@ -341,10 +360,26 @@ def _main_worker() -> int:
                 print("Push failed. Checking if enhanced rebase is needed...")
 
                 # Refresh the rebase status check after potential changes
+                current_branch = get_current_branch()
+                upstream_branch = get_upstream_branch()
                 main_branch = get_main_branch()
-                if check_rebase_needed(main_branch):
-                    print("Repository is behind remote - attempting enhanced rebase...")
-                    result = enhanced_attempt_rebase(main_branch)
+
+                # Determine the target branch for fallback rebase
+                if upstream_branch:
+                    target_branch = upstream_branch
+                else:
+                    target_branch = main_branch
+
+                if check_rebase_needed(target_branch):
+                    remote_ref = (
+                        target_branch
+                        if target_branch.startswith("origin/")
+                        else f"origin/{target_branch}"
+                    )
+                    print(
+                        f"Repository is behind remote - attempting enhanced rebase onto {remote_ref}..."
+                    )
+                    result = enhanced_attempt_rebase(target_branch)
 
                     if result.success:
                         print("Enhanced rebase successful, attempting push again...")
