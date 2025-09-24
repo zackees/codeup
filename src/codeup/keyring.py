@@ -40,10 +40,16 @@ class KeyringManager:
 
             self._keyring_backend = keyring
             self._keyring_available = True
-            logger.debug("Using standard keyring backend")
+            logger.info("Successfully loaded standard keyring backend")
             return self._keyring_backend
-        except ImportError:
-            logger.debug("Standard keyring not available, trying semi_secret")
+        except ImportError as e:
+            logger.warning(
+                f"Standard keyring not available (ImportError: {e}), falling back to semi_secret"
+            )
+        except Exception as e:
+            logger.error(
+                f"Unexpected error loading keyring backend: {e}, falling back to semi_secret"
+            )
 
         # Fallback to semi_secret
         class SemiSecretAdapter:
@@ -79,7 +85,7 @@ class KeyringManager:
 
         self._keyring_backend = SemiSecretAdapter()
         self._keyring_available = True
-        logger.debug("Using semi_secret keyring backend")
+        logger.info("Using semi_secret keyring backend as fallback")
         return self._keyring_backend
 
     def is_keyring_available(self) -> bool:
@@ -97,9 +103,20 @@ class KeyringManager:
             return None
 
         try:
-            return backend.get_password(self.service_name, username)
+            password = backend.get_password(self.service_name, username)
+            if password:
+                logger.debug(
+                    f"Successfully retrieved password from keyring for service '{self.service_name}'"
+                )
+            else:
+                logger.debug(
+                    f"No password found in keyring for service '{self.service_name}', username '{username}'"
+                )
+            return password
         except Exception as e:
-            logger.debug(f"Error getting password from keyring: {e}")
+            logger.error(
+                f"Error getting password from keyring for service '{self.service_name}': {e}"
+            )
             return None
 
     def set_password(self, username: str, password: str) -> bool:
@@ -110,9 +127,14 @@ class KeyringManager:
 
         try:
             backend.set_password(self.service_name, username, password)
+            logger.debug(
+                f"Successfully stored password in keyring for service '{self.service_name}'"
+            )
             return True
         except Exception as e:
-            logger.error(f"Error setting password in keyring: {e}")
+            logger.error(
+                f"Error setting password in keyring for service '{self.service_name}': {e}"
+            )
             return False
 
     def delete_password(self, username: str) -> bool:
