@@ -37,10 +37,10 @@ def run_command_with_streaming(
             print(line, flush=True)
     except KeyboardInterrupt:
         rp.kill()
-        import _thread
+        from codeup.git_utils import interrupt_main
 
-        _thread.interrupt_main()
-        return 1
+        interrupt_main()
+        raise
     except Exception as e:
         # Log the exception to understand what's being silently swallowed
         import logging
@@ -96,10 +96,10 @@ def run_command_with_streaming_and_capture(
                 print(line, flush=True)
     except KeyboardInterrupt:
         rp.kill()
-        import _thread
+        from codeup.git_utils import interrupt_main
 
-        _thread.interrupt_main()
-        return 1, "", ""
+        interrupt_main()
+        raise
     except Exception as e:
         # Log the exception to understand what's being silently swallowed
         import logging

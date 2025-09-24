@@ -116,8 +116,10 @@ def _main_worker() -> int:
         except KeyboardInterrupt:
             logger.info("just-ai-commit interrupted by user")
             print("Aborting")
-            _thread.interrupt_main()
-            return 1
+            from codeup.git_utils import interrupt_main
+
+            interrupt_main()
+            raise
         except Exception as e:
             logger.error(f"Unexpected error in just-ai-commit: {e}")
             print(f"Unexpected error: {e}")
@@ -217,8 +219,10 @@ def _main_worker() -> int:
                         sys.exit(1)
             except KeyboardInterrupt:
                 logger.info("Linting interrupted by user")
-                _thread.interrupt_main()
-                sys.exit(1)
+                from codeup.git_utils import interrupt_main
+
+                interrupt_main()
+                raise
             except Exception as e:
                 logger.error(f"Error during linting: {e}")
                 print(f"Linting error: {e}", file=sys.stderr)
@@ -249,8 +253,10 @@ def _main_worker() -> int:
                     sys.exit(1)
             except KeyboardInterrupt:
                 logger.info("Testing interrupted by user")
-                _thread.interrupt_main()
-                sys.exit(1)
+                from codeup.git_utils import interrupt_main
+
+                interrupt_main()
+                raise
             except Exception as e:
                 logger.error(f"Error during testing: {e}")
                 print(f"Testing error: {e}", file=sys.stderr)
@@ -407,8 +413,10 @@ def _main_worker() -> int:
     except KeyboardInterrupt:
         logger.info("codeup main function interrupted by user")
         print("Aborting")
-        _thread.interrupt_main()
-        return 1
+        from codeup.git_utils import interrupt_main
+
+        interrupt_main()
+        raise
     except Exception as e:
         logger.error(f"Unexpected error in codeup main: {e}")
         print(f"Unexpected error: {e}")
@@ -493,9 +501,12 @@ def main() -> int:
         else:
             try:
                 logger.error("Process timed out after 5 minutes, dumping stack traces")
-            except (ValueError, OSError):
+            except (ValueError, OSError) as e:
                 # Log file may be closed, write directly to stderr
-                pass
+                print(
+                    f"Warning: Could not write to log file during timeout: {e}",
+                    file=sys.stderr,
+                )
             print("ERROR: Process timed out after 5 minutes", file=sys.stderr)
             _dump_all_thread_stacks()
 

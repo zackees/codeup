@@ -80,23 +80,33 @@ The project uses a multi-tier configuration system for API keys:
 
 1. **KeyboardInterrupt Priority**: When handling exceptions, KeyboardInterrupt must always be handled first before any general exception handlers.
    - Use specific `except KeyboardInterrupt:` blocks before `except Exception:`
-   - In KeyboardInterrupt handlers, call `import _thread; _thread.interrupt_main()`
+   - In KeyboardInterrupt handlers, call `interrupt_main()` utility function and then `raise`
 
-2. **General Exceptions**: All general exception handlers must log the error before handling it.
+2. **General Exception Logging**: ALL general exception handlers MUST log the error before handling it.
    - Use `logger.error()`, `logger.warning()`, or appropriate logging level
    - Include context about what operation failed
+   - **NEVER catch a general exception without logging it**
+   - **NEVER use `pass` in exception handlers without logging**
+
+3. **Exception Handler Ordering**: KeyboardInterrupt must always be handled before general Exception handlers.
+   - This prevents KeyboardInterrupt from being caught by generic Exception handlers
+   - Always use the pattern: KeyboardInterrupt first, then specific exceptions, then general Exception
 
 ### Examples
 
 ```python
-# Good - KeyboardInterrupt handled first, then general exceptions
+# Good - KeyboardInterrupt handled first, general exceptions logged
 try:
     risky_operation()
 except KeyboardInterrupt:
-    import _thread
-    _thread.interrupt_main()
+    logger.info("Operation interrupted by user")
+    interrupt_main()
+    raise
+except SpecificError as e:
+    logger.warning(f"Specific error in operation: {e}")
+    handle_specific_error(e)
 except Exception as e:
-    logger.error(f"Operation failed: {e}")
+    logger.error(f"Unexpected error in operation: {e}")
     handle_gracefully()
 
 # Bad - KeyboardInterrupt caught by general Exception handler
@@ -104,6 +114,18 @@ try:
     risky_operation()
 except Exception as e:  # This will catch KeyboardInterrupt too!
     logger.error(f"Operation failed: {e}")
+
+# Bad - Exception caught without logging
+try:
+    risky_operation()
+except Exception:
+    pass  # NEVER do this - must log the exception
+
+# Bad - Exception logged but execution continues unexpectedly
+try:
+    cleanup_operation()
+except Exception:
+    pass  # Even cleanup operations must log errors
 ```
 
 ## Testing Structure

@@ -1,6 +1,5 @@
 """Utility functions for CodeUp."""
 
-import _thread
 import logging
 import os
 import shlex
@@ -49,9 +48,10 @@ def input_with_timeout(prompt: str, timeout_seconds: int = 300) -> str:
         try:
             result.append(input(prompt))
         except KeyboardInterrupt:
-            import _thread
+            from codeup.git_utils import interrupt_main
 
-            _thread.interrupt_main()
+            interrupt_main()
+            raise
         except Exception as e:
             exception_holder.append(e)
 
@@ -93,8 +93,10 @@ def is_uv_project(directory=".") -> bool:
         return all(os.path.isfile(os.path.join(directory, f)) for f in required_files)
     except KeyboardInterrupt:
         logger.info("is_uv_project interrupted by user")
-        _thread.interrupt_main()
-        return False
+        from codeup.git_utils import interrupt_main
+
+        interrupt_main()
+        raise
     except Exception as e:
         logger.error(f"Error in is_uv_project: {e}")
         print(f"Error: {e}")
@@ -212,8 +214,10 @@ def _exec(cmd: str, bash: bool, die=True) -> int:
             rtn = run_command_with_streaming(cmd_parts)
     except KeyboardInterrupt:
         logger.info("_exec interrupted by user")
-        _thread.interrupt_main()
-        return 130
+        from codeup.git_utils import interrupt_main
+
+        interrupt_main()
+        raise
     except Exception as e:
         logger.error(f"Error in _exec: {e}")
         print(f"Error executing command: {e}", file=sys.stderr)

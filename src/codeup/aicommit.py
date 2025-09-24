@@ -1,6 +1,5 @@
 """AI-powered commit message generation for codeup."""
 
-import _thread
 import logging
 import os
 import sys
@@ -75,8 +74,10 @@ Respond with only the commit message, nothing else."""
         return None
     except KeyboardInterrupt:
         logger.info("_generate_ai_commit_message_anthropic interrupted by user")
-        _thread.interrupt_main()
-        return None
+        from codeup.git_utils import interrupt_main
+
+        interrupt_main()
+        raise
     except Exception as e:
         logger.error(f"Failed to generate Anthropic commit message: {e}")
         return None
@@ -149,8 +150,10 @@ Respond with only the commit message, nothing else."""
 
             except KeyboardInterrupt:
                 logger.info("OpenAI API call interrupted by user")
-                _thread.interrupt_main()
-                return None
+                from codeup.git_utils import interrupt_main
+
+                interrupt_main()
+                raise
             except Exception as e:
                 # Extract cleaner error message from OpenAI exceptions
                 error_msg = str(e)
@@ -170,7 +173,10 @@ Respond with only the commit message, nothing else."""
                                 if " - " in error_msg
                                 else str(e)
                             )
-                    except Exception:
+                    except Exception as parse_error:
+                        logger.debug(
+                            f"Failed to parse OpenAI error message: {parse_error}"
+                        )
                         clean_msg = str(e)
                 else:
                     clean_msg = str(e)
@@ -202,8 +208,10 @@ Respond with only the commit message, nothing else."""
 
     except KeyboardInterrupt:
         logger.info("_generate_ai_commit_message interrupted by user")
-        _thread.interrupt_main()
-        return None
+        from codeup.git_utils import interrupt_main
+
+        interrupt_main()
+        raise
     except Exception as e:
         logger.error(f"Failed to generate AI commit message: {e}")
         logger.error(f"Exception type: {type(e).__name__}")
@@ -281,9 +289,10 @@ def _opencommit_or_prompt_for_commit_message(
                 try:
                     result.append(input(prompt))
                 except KeyboardInterrupt:
-                    import _thread
+                    from codeup.git_utils import interrupt_main
 
-                    _thread.interrupt_main()
+                    interrupt_main()
+                    raise
                 except Exception as e:
                     exception_holder.append(e)
 

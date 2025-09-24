@@ -11,6 +11,11 @@ from codeup.running_process_adapter import run_command_with_streaming_and_captur
 logger = logging.getLogger(__name__)
 
 
+def interrupt_main() -> None:
+    """Utility function to properly handle KeyboardInterrupt by calling _thread.interrupt_main()."""
+    _thread.interrupt_main()
+
+
 @dataclass(frozen=True)
 class RebaseResult:
     """Result of an enhanced rebase operation with comprehensive safety information."""
@@ -35,8 +40,8 @@ def safe_git_commit(message: str) -> int:
         return exit_code
     except KeyboardInterrupt:
         logger.info("safe_git_commit interrupted by user")
-        _thread.interrupt_main()
-        return 130
+        interrupt_main()
+        raise
     except Exception as e:
         logger.error(f"Error in safe_git_commit: {e}")
         print(f"Error executing git commit: {e}", file=sys.stderr)
@@ -45,13 +50,21 @@ def safe_git_commit(message: str) -> int:
 
 def get_git_status() -> str:
     """Get git status output."""
-    print("Running: git status")
-    exit_code, stdout, stderr = run_command_with_streaming_and_capture(
-        ["git", "status"],
-        quiet=False,
-        check=True,  # Enable streaming to see what's happening
-    )
-    return stdout
+    try:
+        print("Running: git status")
+        exit_code, stdout, stderr = run_command_with_streaming_and_capture(
+            ["git", "status"],
+            quiet=False,
+            check=True,  # Enable streaming to see what's happening
+        )
+        return stdout
+    except KeyboardInterrupt:
+        logger.info("get_git_status interrupted by user")
+        interrupt_main()
+        raise
+    except Exception as e:
+        logger.error(f"Error getting git status: {e}")
+        return ""
 
 
 def get_git_diff_cached() -> str:
@@ -66,8 +79,8 @@ def get_git_diff_cached() -> str:
         return stdout.strip()
     except KeyboardInterrupt:
         logger.info("get_git_diff_cached interrupted by user")
-        _thread.interrupt_main()
-        return ""
+        interrupt_main()
+        raise
     except Exception as e:
         logger.error(f"Error getting staged diff: {e}")
         return ""
@@ -85,8 +98,8 @@ def get_git_diff() -> str:
         return stdout.strip()
     except KeyboardInterrupt:
         logger.info("get_git_diff interrupted by user")
-        _thread.interrupt_main()
-        return ""
+        interrupt_main()
+        raise
     except Exception as e:
         logger.error(f"Error getting diff: {e}")
         return ""
@@ -104,8 +117,8 @@ def get_staged_files() -> list[str]:
         return [f.strip() for f in stdout.splitlines() if f.strip()]
     except KeyboardInterrupt:
         logger.info("get_staged_files interrupted by user")
-        _thread.interrupt_main()
-        return []
+        interrupt_main()
+        raise
     except Exception as e:
         logger.error(f"Error getting staged files: {e}")
         return []
@@ -123,8 +136,8 @@ def get_unstaged_files() -> list[str]:
         return [f.strip() for f in stdout.splitlines() if f.strip()]
     except KeyboardInterrupt:
         logger.info("get_unstaged_files interrupted by user")
-        _thread.interrupt_main()
-        return []
+        interrupt_main()
+        raise
     except Exception as e:
         logger.error(f"Error getting unstaged files: {e}")
         return []
@@ -132,14 +145,22 @@ def get_unstaged_files() -> list[str]:
 
 def get_untracked_files() -> list[str]:
     """Get list of untracked files."""
-    print("Running: git ls-files --others --exclude-standard")
-    exit_code, stdout, stderr = run_command_with_streaming_and_capture(
-        ["git", "ls-files", "--others", "--exclude-standard"],
-        quiet=False,  # Enable streaming to see what's happening
-        check=True,
-    )
+    try:
+        print("Running: git ls-files --others --exclude-standard")
+        exit_code, stdout, stderr = run_command_with_streaming_and_capture(
+            ["git", "ls-files", "--others", "--exclude-standard"],
+            quiet=False,  # Enable streaming to see what's happening
+            check=True,
+        )
 
-    return [f.strip() for f in stdout.splitlines() if f.strip()]
+        return [f.strip() for f in stdout.splitlines() if f.strip()]
+    except KeyboardInterrupt:
+        logger.info("get_untracked_files interrupted by user")
+        interrupt_main()
+        raise
+    except Exception as e:
+        logger.error(f"Error getting untracked files: {e}")
+        return []
 
 
 def get_main_branch() -> str:
@@ -154,8 +175,8 @@ def get_main_branch() -> str:
             return stdout.strip().split("/")[-1]
     except KeyboardInterrupt:
         logger.info("get_main_branch interrupted by user")
-        _thread.interrupt_main()
-        return "main"
+        interrupt_main()
+        raise
     except Exception as e:
         logger.error(f"Error getting main branch: {e}")
         pass
@@ -171,8 +192,8 @@ def get_main_branch() -> str:
                 return branch
         except KeyboardInterrupt:
             logger.info("get_main_branch loop interrupted by user")
-            _thread.interrupt_main()
-            return "main"
+            interrupt_main()
+            raise
         except Exception as e:
             logger.error(f"Error checking branch {branch}: {e}")
             continue
@@ -182,13 +203,21 @@ def get_main_branch() -> str:
 
 def get_current_branch() -> str:
     """Get the current branch name."""
-    print("Running: git branch --show-current")
-    exit_code, stdout, stderr = run_command_with_streaming_and_capture(
-        ["git", "branch", "--show-current"],
-        quiet=False,  # Enable streaming to see what's happening
-        check=True,
-    )
-    return stdout.strip()
+    try:
+        print("Running: git branch --show-current")
+        exit_code, stdout, stderr = run_command_with_streaming_and_capture(
+            ["git", "branch", "--show-current"],
+            quiet=False,  # Enable streaming to see what's happening
+            check=True,
+        )
+        return stdout.strip()
+    except KeyboardInterrupt:
+        logger.info("get_current_branch interrupted by user")
+        interrupt_main()
+        raise
+    except Exception as e:
+        logger.error(f"Error getting current branch: {e}")
+        return ""
 
 
 def get_upstream_branch() -> str:
@@ -204,8 +233,8 @@ def get_upstream_branch() -> str:
             return ""
     except KeyboardInterrupt:
         logger.info("get_upstream_branch interrupted by user")
-        _thread.interrupt_main()
-        return ""
+        interrupt_main()
+        raise
     except Exception as e:
         logger.error(f"Error getting upstream branch: {e}")
         return ""
@@ -229,8 +258,8 @@ def get_remote_branch_hash(target_branch: str) -> str:
         return stdout.strip()
     except KeyboardInterrupt:
         logger.info("get_remote_branch_hash interrupted by user")
-        _thread.interrupt_main()
-        return ""
+        interrupt_main()
+        raise
     except Exception as e:
         logger.error(f"Error getting remote branch hash: {e}")
         return ""
@@ -254,8 +283,8 @@ def get_merge_base(target_branch: str) -> str:
         return stdout.strip()
     except KeyboardInterrupt:
         logger.info("get_merge_base interrupted by user")
-        _thread.interrupt_main()
-        return ""
+        interrupt_main()
+        raise
     except Exception as e:
         logger.error(f"Error getting merge base: {e}")
         return ""
@@ -269,8 +298,8 @@ def check_rebase_needed(target_branch: str) -> bool:
         return merge_base != remote_hash
     except KeyboardInterrupt:
         logger.info("check_rebase_needed interrupted by user")
-        _thread.interrupt_main()
-        return False
+        interrupt_main()
+        raise
     except Exception as e:
         logger.error(f"Error checking rebase needed: {e}")
         return False
@@ -339,8 +368,8 @@ def attempt_rebase(target_branch: str) -> tuple[bool, bool]:
 
     except KeyboardInterrupt:
         logger.info("attempt_rebase interrupted by user")
-        _thread.interrupt_main()
-        return False, False
+        interrupt_main()
+        raise
     except Exception as e:
         logger.error(f"Error attempting rebase: {e}")
         print(f"Error attempting rebase: {e}", file=sys.stderr)
@@ -377,8 +406,8 @@ def git_push() -> tuple[bool, str]:
         return exit_code == 0, stderr
     except KeyboardInterrupt:
         logger.info("git_push interrupted by user")
-        _thread.interrupt_main()
-        return False, "Interrupted by user"
+        interrupt_main()
+        raise
     except Exception as e:
         logger.error(f"Error during git push: {e}")
         return False, str(e)
@@ -406,8 +435,8 @@ def has_changes_to_commit() -> bool:
 
     except KeyboardInterrupt:
         logger.info("has_changes_to_commit interrupted by user")
-        _thread.interrupt_main()
-        return False
+        interrupt_main()
+        raise
     except Exception as e:
         logger.error(f"Error checking for changes: {e}")
         return False
@@ -439,8 +468,8 @@ def git_add_all() -> int:
         return exit_code
     except KeyboardInterrupt:
         logger.info("git_add_all interrupted by user")
-        _thread.interrupt_main()
-        return 130
+        interrupt_main()
+        raise
     except Exception as e:
         logger.error(f"Error in git_add_all: {e}")
         print(f"Error executing git add .: {e}", file=sys.stderr)
@@ -460,8 +489,8 @@ def git_add_file(filename: str) -> int:
         return exit_code
     except KeyboardInterrupt:
         logger.info("git_add_file interrupted by user")
-        _thread.interrupt_main()
-        return 130
+        interrupt_main()
+        raise
     except Exception as e:
         logger.error(f"Error in git_add_file: {e}")
         print(f"Error executing git add {filename}: {e}", file=sys.stderr)
@@ -481,8 +510,8 @@ def git_fetch() -> int:
         return exit_code
     except KeyboardInterrupt:
         logger.info("git_fetch interrupted by user")
-        _thread.interrupt_main()
-        return 130
+        interrupt_main()
+        raise
     except Exception as e:
         logger.error(f"Error in git_fetch: {e}")
         print(f"Error executing git fetch: {e}", file=sys.stderr)
@@ -543,8 +572,8 @@ def safe_rebase_try() -> bool:
 
     except KeyboardInterrupt:
         logger.info("safe_rebase_try interrupted by user")
-        _thread.interrupt_main()
-        return False
+        interrupt_main()
+        raise
     except Exception as e:
         logger.error(f"Error in safe_rebase_try: {e}")
         print(f"Error during safe rebase attempt: {e}")
@@ -567,8 +596,8 @@ def safe_push() -> bool:
 
     except KeyboardInterrupt:
         logger.info("safe_push interrupted by user")
-        _thread.interrupt_main()
-        return False
+        interrupt_main()
+        raise
     except Exception as e:
         logger.error(f"Push error: {e}")
         print(f"Push error: {e}")
@@ -598,8 +627,8 @@ def capture_pre_rebase_state() -> str:
         return backup_ref
     except KeyboardInterrupt:
         logger.info("capture_pre_rebase_state interrupted by user")
-        _thread.interrupt_main()
-        return ""
+        interrupt_main()
+        raise
     except Exception as e:
         logger.error(f"Error capturing pre-rebase state: {e}")
         return ""
@@ -620,8 +649,8 @@ def verify_clean_working_directory() -> bool:
             return False
     except KeyboardInterrupt:
         logger.info("verify_clean_working_directory interrupted by user")
-        _thread.interrupt_main()
-        return False
+        interrupt_main()
+        raise
     except Exception as e:
         logger.error(f"Error verifying clean working directory: {e}")
         return False
@@ -656,8 +685,8 @@ def emergency_rollback(backup_ref: str) -> bool:
             return False
     except KeyboardInterrupt:
         logger.info("emergency_rollback interrupted by user")
-        _thread.interrupt_main()
-        return False
+        interrupt_main()
+        raise
     except Exception as e:
         logger.error(f"Error during emergency rollback: {e}")
         return False
@@ -680,8 +709,8 @@ def verify_state_matches_backup(backup_ref: str) -> bool:
         return verify_clean_working_directory()
     except KeyboardInterrupt:
         logger.info("verify_state_matches_backup interrupted by user")
-        _thread.interrupt_main()
-        return False
+        interrupt_main()
+        raise
     except Exception as e:
         logger.error(f"Error verifying state matches backup: {e}")
         return False
@@ -711,8 +740,8 @@ def execute_enhanced_abort(backup_ref: str) -> bool:
 
     except KeyboardInterrupt:
         logger.info("execute_enhanced_abort interrupted by user")
-        _thread.interrupt_main()
-        return False
+        interrupt_main()
+        raise
     except Exception as e:
         logger.error(f"Error during enhanced abort: {e}")
         return emergency_rollback(backup_ref)
@@ -806,8 +835,8 @@ def verify_rebase_success(target_branch: str) -> bool:
         return True
     except KeyboardInterrupt:
         logger.info("verify_rebase_success interrupted by user")
-        _thread.interrupt_main()
-        return False
+        interrupt_main()
+        raise
     except Exception as e:
         logger.error(f"Error verifying rebase success: {e}")
         return False
@@ -923,16 +952,14 @@ def enhanced_attempt_rebase(target_branch: str) -> RebaseResult:
 
     except KeyboardInterrupt:
         logger.info("enhanced_attempt_rebase interrupted by user")
-        _thread.interrupt_main()
+        interrupt_main()
         # Attempt emergency recovery on interrupt
-        emergency_rollback(backup_ref)
-        return RebaseResult(
-            success=False,
-            had_conflicts=False,
-            backup_ref=backup_ref,
-            error_message="Rebase interrupted by user",
-            recovery_commands=generate_emergency_recovery_commands(backup_ref),
-        )
+        try:
+            emergency_rollback(backup_ref)
+        except Exception as e:
+            logger.warning(f"Emergency rollback failed during interrupt: {e}")
+            # Continue with interrupt propagation despite rollback failure
+        raise
     except Exception as e:
         logger.error(f"Unexpected error during enhanced rebase: {e}")
         # Emergency rollback for any unexpected failures
