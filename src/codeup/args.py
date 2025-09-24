@@ -20,6 +20,9 @@ class Args:
     just_ai_commit: bool
     set_key_anthropic: str | None
     set_key_openai: str | None
+    dry_run: bool
+    lint: bool
+    test: bool
 
     def __post_init__(self) -> None:
         assert isinstance(
@@ -62,6 +65,11 @@ class Args:
         assert isinstance(
             self.set_key_openai, (str, type(None))
         ), f"Expected (str, type(None)), got {type(self.set_key_openai)}"
+        assert isinstance(
+            self.dry_run, bool
+        ), f"Expected bool, got {type(self.dry_run)}"
+        assert isinstance(self.lint, bool), f"Expected bool, got {type(self.lint)}"
+        assert isinstance(self.test, bool), f"Expected bool, got {type(self.test)}"
 
     @staticmethod
     def parse_args() -> "Args":
@@ -128,6 +136,21 @@ def _parse_args() -> Args:
         type=str,
         help="Set OpenAI API key and exit",
     )
+    parser.add_argument(
+        "--dry-run",
+        help="Run only lint and test scripts without git operations or user interaction",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--lint",
+        help="When used with --dry-run, run only the lint script",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--test",
+        help="When used with --dry-run, run only the test script",
+        action="store_true",
+    )
     tmp = parser.parse_args()
 
     out: Args = Args(
@@ -145,5 +168,8 @@ def _parse_args() -> Args:
         just_ai_commit=tmp.just_ai_commit,
         set_key_anthropic=tmp.set_key_anthropic,
         set_key_openai=tmp.set_key_openai,
+        dry_run=tmp.dry_run,
+        lint=tmp.lint,
+        test=tmp.test,
     )
     return out

@@ -104,6 +104,148 @@ def _main_worker() -> int:
     git_path = check_environment()
     os.chdir(str(git_path))
 
+    # Handle --dry-run flag
+    if args.dry_run:
+        # Determine what to run based on positive flags
+        should_run_lint = False
+        should_run_test = False
+
+        if args.lint and args.test:
+            # Both positive flags specified - run both
+            should_run_lint = True
+            should_run_test = True
+            print("Dry-run mode: Running lint and test scripts only")
+        elif args.lint:
+            # Only lint flag specified - run only lint
+            should_run_lint = True
+            print("Dry-run mode: Running lint script only")
+        elif args.test:
+            # Only test flag specified - run only test
+            should_run_test = True
+            print("Dry-run mode: Running test script only")
+        else:
+            # No positive flags - default behavior (run both if not disabled)
+            should_run_lint = not args.no_lint
+            should_run_test = not args.no_test
+            print("Dry-run mode: Running lint and test scripts only")
+
+        try:
+            # Run linting if should run and available
+            if should_run_lint and os.path.exists("./lint"):
+                print(LINTING_BANNER, end="")
+
+                cmd = "./lint" + (" --verbose" if verbose else "")
+                cmd = _to_exec_str(cmd, bash=True)
+
+                # Use streaming process that captures output AND streams in real-time
+                uv_resolved_dependencies = True
+                try:
+                    import shlex
+
+                    # Split the command properly for subprocess
+                    cmd_parts = shlex.split(cmd)
+                    logger.debug(f"Running lint with command parts: {cmd_parts}")
+
+                    print(f"Running: {cmd}")
+                    # Run with streaming AND capture for dependency detection
+                    rtn, stdout, stderr = run_command_with_streaming_and_capture(
+                        cmd_parts,
+                        shell=True,
+                        quiet=False,  # Stream output in real-time
+                        capture_output=True,  # Also capture for dependency checking
+                    )
+
+                    # Check captured output for dependency resolution issues
+                    output_text = stdout + stderr
+                    if "No solution found when resolving dependencies" in output_text:
+                        uv_resolved_dependencies = False
+
+                    if rtn != 0:
+                        print("Error: Linting failed.")
+                        # Display captured output if linting failed
+                        if stderr.strip():
+                            print("STDERR:", file=sys.stderr)
+                            print(stderr, file=sys.stderr)
+                        if stdout.strip():
+                            print("STDOUT:")
+                            print(stdout)
+                        if uv_resolved_dependencies:
+                            return 1
+                        # In dry-run mode, automatically try dependency refresh without prompting
+                        print(
+                            "Dry-run mode: automatically running 'uv pip install -e . --refresh'"
+                        )
+                        for _ in range(3):
+                            refresh_rtn = _exec(
+                                "uv pip install -e . --refresh", bash=False, die=False
+                            )
+                            if refresh_rtn == 0:
+                                break
+                        else:
+                            print("Error: uv pip install -e . --refresh failed.")
+                            return 1
+                except KeyboardInterrupt:
+                    logger.info("Dry-run linting interrupted by user")
+                    from codeup.git_utils import interrupt_main
+
+                    interrupt_main()
+                    raise
+                except Exception as e:
+                    logger.error(f"Error during dry-run linting: {e}")
+                    print(f"Linting error: {e}", file=sys.stderr)
+                    return 1
+
+            # Run testing if should run and available
+            if should_run_test and os.path.exists("./test"):
+                print(TESTING_BANNER, end="")
+
+                test_cmd = "./test" + (" --verbose" if verbose else "")
+                test_cmd = _to_exec_str(test_cmd, bash=True)
+
+                print(f"Running: {test_cmd}")
+                try:
+                    import shlex
+
+                    # Split the command properly for subprocess
+                    test_cmd_parts = shlex.split(test_cmd)
+                    logger.debug(f"Running test with command parts: {test_cmd_parts}")
+
+                    # Run tests with streaming output (no need to capture for tests)
+                    rtn, _, _ = run_command_with_streaming_and_capture(
+                        test_cmd_parts,
+                        shell=True,
+                        quiet=False,  # Stream output in real-time
+                        capture_output=False,  # No need to capture test output
+                    )
+                    if rtn != 0:
+                        print("Error: Tests failed.")
+                        return 1
+                except KeyboardInterrupt:
+                    logger.info("Dry-run testing interrupted by user")
+                    from codeup.git_utils import interrupt_main
+
+                    interrupt_main()
+                    raise
+                except Exception as e:
+                    logger.error(f"Error during dry-run testing: {e}")
+                    print(f"Testing error: {e}", file=sys.stderr)
+                    return 1
+
+            print("Dry-run completed successfully")
+            return 0
+
+        except KeyboardInterrupt:
+            logger.info("Dry-run interrupted by user")
+            print("Aborting")
+            from codeup.git_utils import interrupt_main
+
+            interrupt_main()
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error in dry-run mode: {e}")
+            print(f"Unexpected error: {e}")
+            return 1
+
     # Handle --just-ai-commit flag
     if args.just_ai_commit:
         try:

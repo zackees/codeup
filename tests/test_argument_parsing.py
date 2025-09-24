@@ -269,6 +269,9 @@ class ArgumentParsingTester(unittest.TestCase):
                 just_ai_commit=False,
                 set_key_anthropic=None,
                 set_key_openai=None,
+                dry_run=False,
+                lint=False,
+                test=False,
             )
 
             # Should not raise any exceptions
@@ -292,6 +295,9 @@ class ArgumentParsingTester(unittest.TestCase):
                 just_ai_commit=True,
                 set_key_anthropic="sk-ant-test",
                 set_key_openai="sk-test",
+                dry_run=True,
+                lint=True,
+                test=True,
             )
 
             self.assertIsNotNone(

@@ -63,6 +63,7 @@ def run_command_with_streaming_and_capture(
     timeout: int | None = None,
     quiet: bool = False,
     raw_output: bool = False,
+    capture_output: bool = True,
     **kwargs: Any,
 ) -> "tuple[int, str, str]":
     """Run command with streaming and capture output.
@@ -73,6 +74,7 @@ def run_command_with_streaming_and_capture(
         timeout: Timeout in seconds
         quiet: If True, don't print output to console
         raw_output: Deprecated parameter (all output is now raw without timestamps)
+        capture_output: If True, capture output for return value; if False, only stream
         **kwargs: Additional arguments
     """
     stdout_lines = []
@@ -91,7 +93,8 @@ def run_command_with_streaming_and_capture(
 
     try:
         for line in rp.line_iter(timeout=LINE_ITERATION_TIMEOUT):
-            stdout_lines.append(line)
+            if capture_output:
+                stdout_lines.append(line)
             if not quiet:
                 print(line, flush=True)
     except KeyboardInterrupt:
@@ -115,7 +118,7 @@ def run_command_with_streaming_and_capture(
     rp.wait()
 
     # The new package merges stderr into stdout, so we'll return stdout for both
-    stdout_text = "\n".join(stdout_lines)
+    stdout_text = "\n".join(stdout_lines) if capture_output else ""
     stderr_text = ""  # Empty since stderr is merged into stdout
 
     return rp.returncode or 0, stdout_text, stderr_text
