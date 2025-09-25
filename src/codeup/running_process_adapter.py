@@ -2,6 +2,7 @@
 Adapter module to bridge the old running_process interface with the new package.
 """
 
+import time
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +11,35 @@ from running_process.output_formatter import NullOutputFormatter
 
 # Timeout constants
 LINE_ITERATION_TIMEOUT = 300.0  # 5 minutes for line iteration
+TIMEOUT_CHECK_INTERVAL = (
+    300.0  # 5 minutes between timeout checks (configurable for testing)
+)
+
+# Global activity tracking
+_last_activity_time_tracker = None
+
+
+def set_timeout_interval(interval_seconds):
+    """Set the timeout check interval for testing purposes."""
+    global TIMEOUT_CHECK_INTERVAL
+    TIMEOUT_CHECK_INTERVAL = interval_seconds
+
+
+def get_timeout_interval():
+    """Get the current timeout check interval."""
+    return TIMEOUT_CHECK_INTERVAL
+
+
+def set_activity_tracker(activity_tracker):
+    """Set the global activity tracker to reset timeout when test output is received."""
+    global _last_activity_time_tracker
+    _last_activity_time_tracker = activity_tracker
+
+
+def _update_activity_time():
+    """Update the last activity time when test output is received."""
+    if _last_activity_time_tracker is not None:
+        _last_activity_time_tracker[0] = time.time()
 
 
 def run_command_with_streaming(
@@ -35,6 +65,7 @@ def run_command_with_streaming(
     try:
         for line in rp.line_iter(timeout=LINE_ITERATION_TIMEOUT):
             print(line, flush=True)
+            _update_activity_time()  # Reset timeout on test output
     except KeyboardInterrupt:
         rp.kill()
         from codeup.git_utils import interrupt_main
@@ -97,6 +128,7 @@ def run_command_with_streaming_and_capture(
                 stdout_lines.append(line)
             if not quiet:
                 print(line, flush=True)
+            _update_activity_time()  # Reset timeout on test output
     except KeyboardInterrupt:
         rp.kill()
         from codeup.git_utils import interrupt_main

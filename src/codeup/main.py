@@ -34,7 +34,10 @@ from codeup.git_utils import (
     safe_push,
 )
 from codeup.keyring import set_anthropic_api_key, set_openai_api_key
-from codeup.running_process_adapter import run_command_with_streaming_and_capture
+from codeup.running_process_adapter import (
+    run_command_with_streaming_and_capture,
+    set_activity_tracker,
+)
 from codeup.utils import (
     _exec,
     _publish,
@@ -623,37 +626,54 @@ def main() -> int:
     # Global variable to store the result from the worker thread
     result = [1]  # Default to error exit code
 
+    # Global variable to track the last activity time for test output monitoring
+    last_activity_time = [time.time()]
+
+    # Set up the activity tracker for the running_process_adapter
+    set_activity_tracker(last_activity_time)
+
     def timeout_handler():
-        """Handle timeout by dumping stack traces and forcing process exit."""
-        time.sleep(300)  # 5 minutes = 300 seconds
+        """Handle timeout by checking test output activity every 5 minutes."""
+        while True:
+            time.sleep(300)  # Check every 5 minutes = 300 seconds
 
-        # Check if we're waiting for user input
-        if _is_waiting_for_user_input():
-            try:
-                logger.error(
-                    "Process timed out after 5 minutes while waiting for user input"
-                )
-            except (ValueError, OSError):
-                # Log file may be closed, write directly to stderr
-                pass
-            print(
-                "ERROR: Process timed out after 5 minutes - died while waiting for user input",
-                file=sys.stderr,
-            )
-        else:
-            try:
-                logger.error("Process timed out after 5 minutes, dumping stack traces")
-            except (ValueError, OSError) as e:
-                # Log file may be closed, write directly to stderr
-                print(
-                    f"Warning: Could not write to log file during timeout: {e}",
-                    file=sys.stderr,
-                )
-            print("ERROR: Process timed out after 5 minutes", file=sys.stderr)
-            _dump_all_thread_stacks()
+            current_time = time.time()
+            time_since_last_activity = current_time - last_activity_time[0]
 
-        _thread.interrupt_main()
-        os._exit(1)
+            # If no activity for 5 minutes, trigger thread dump and exit
+            if time_since_last_activity >= 300:
+                # Check if we're waiting for user input
+                if _is_waiting_for_user_input():
+                    try:
+                        logger.error(
+                            "Process timed out after 5 minutes while waiting for user input"
+                        )
+                    except (ValueError, OSError):
+                        # Log file may be closed, write directly to stderr
+                        pass
+                    print(
+                        "ERROR: Process timed out after 5 minutes - died while waiting for user input",
+                        file=sys.stderr,
+                    )
+                else:
+                    try:
+                        logger.error(
+                            "Process timed out after 5 minutes of no test output, dumping stack traces"
+                        )
+                    except (ValueError, OSError) as e:
+                        # Log file may be closed, write directly to stderr
+                        print(
+                            f"Warning: Could not write to log file during timeout: {e}",
+                            file=sys.stderr,
+                        )
+                    print(
+                        "ERROR: Process timed out after 5 minutes of no test output",
+                        file=sys.stderr,
+                    )
+                    _dump_all_thread_stacks()
+
+                _thread.interrupt_main()
+                os._exit(1)
 
     def worker_wrapper():
         """Wrapper for the main worker that stores the result."""
