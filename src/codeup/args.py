@@ -23,6 +23,7 @@ class Args:
     dry_run: bool
     lint: bool
     test: bool
+    pre_test: bool
 
     def __post_init__(self) -> None:
         assert isinstance(
@@ -70,6 +71,9 @@ class Args:
         ), f"Expected bool, got {type(self.dry_run)}"
         assert isinstance(self.lint, bool), f"Expected bool, got {type(self.lint)}"
         assert isinstance(self.test, bool), f"Expected bool, got {type(self.test)}"
+        assert isinstance(
+            self.pre_test, bool
+        ), f"Expected bool, got {type(self.pre_test)}"
 
     @staticmethod
     def parse_args() -> "Args":
@@ -151,6 +155,11 @@ def _parse_args() -> Args:
         help="When used with --dry-run, run only the test script",
         action="store_true",
     )
+    parser.add_argument(
+        "--pre-test",
+        help="Error if there are untracked files (prevents blocking when run as subcommand)",
+        action="store_true",
+    )
     tmp = parser.parse_args()
 
     out: Args = Args(
@@ -171,5 +180,6 @@ def _parse_args() -> Args:
         dry_run=tmp.dry_run,
         lint=tmp.lint,
         test=tmp.test,
+        pre_test=tmp.pre_test,
     )
     return out

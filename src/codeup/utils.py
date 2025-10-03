@@ -282,6 +282,11 @@ def get_answer_yes_or_no(question: str, default: bool | str = "y") -> bool:
                         return False
                 return True
             print("Please answer 'yes' or 'no'.")
+        except KeyboardInterrupt:
+            from codeup.git_utils import interrupt_main
+
+            interrupt_main()
+            raise
         except (EOFError, InputTimeoutError) as e:
             # No stdin available or timeout, use default
             result = (

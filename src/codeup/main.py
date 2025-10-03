@@ -283,7 +283,25 @@ def _main_worker() -> int:
         has_untracked = len(untracked_files) > 0
         if has_untracked:
             print("There are untracked files.")
-            if args.no_interactive:
+            if args.pre_test:
+                # In pre-test mode, error out if there are untracked files
+                # This prevents blocking when codeup is called as a subcommand
+                print(
+                    "Error: Untracked files detected in pre-test mode.", file=sys.stderr
+                )
+                print(
+                    "Pre-test mode requires all files to be tracked before running.",
+                    file=sys.stderr,
+                )
+                print("\nUntracked files:", file=sys.stderr)
+                for untracked_file in untracked_files:
+                    print(f"  {untracked_file}", file=sys.stderr)
+                print(
+                    "\nPlease add these files to git or run codeup without --pre-test flag.",
+                    file=sys.stderr,
+                )
+                return 1
+            elif args.no_interactive:
                 # In non-interactive mode, automatically add all untracked files
                 print("Non-interactive mode: automatically adding all untracked files.")
                 for untracked_file in untracked_files:

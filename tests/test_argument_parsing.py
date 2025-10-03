@@ -272,6 +272,7 @@ class ArgumentParsingTester(unittest.TestCase):
                 dry_run=False,
                 lint=False,
                 test=False,
+                pre_test=False,
             )
 
             # Should not raise any exceptions
@@ -298,6 +299,7 @@ class ArgumentParsingTester(unittest.TestCase):
                 dry_run=True,
                 lint=True,
                 test=True,
+                pre_test=True,
             )
 
             self.assertIsNotNone(
