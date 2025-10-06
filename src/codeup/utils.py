@@ -15,6 +15,73 @@ from codeup.running_process_adapter import run_command_with_streaming
 
 logger = logging.getLogger(__name__)
 
+# ANSI color codes
+RED = "\033[91m"
+RESET = "\033[0m"
+
+
+def is_suspicious_file(filename: str) -> bool:
+    """Check if a file has a suspicious extension that typically shouldn't be committed.
+
+    Args:
+        filename: The filename to check
+
+    Returns:
+        True if the file has a suspicious extension
+    """
+    suspicious_patterns = [
+        ".txt",
+        ".log",
+        ".tmp",
+        ".temp",
+        ".o",
+        ".obj",
+        ".exe",
+        ".dll",
+        ".so",
+        ".dylib",
+        ".pyc",
+        ".pyo",
+        ".pyd",
+        ".class",
+        ".vsproj",
+        ".vcxproj",
+        ".sln",
+        ".suo",
+        ".user",
+        ".cache",
+        ".bak",
+        ".swp",
+        ".swo",
+    ]
+
+    filename_lower = filename.lower()
+
+    # Check for exact extension matches
+    for pattern in suspicious_patterns:
+        if filename_lower.endswith(pattern):
+            return True
+
+    # Check for *tmp*.* pattern (any file with 'tmp' in the name)
+    if "tmp" in filename_lower or "temp" in filename_lower:
+        return True
+
+    return False
+
+
+def format_filename_with_warning(filename: str) -> str:
+    """Format a filename with red color if it's suspicious.
+
+    Args:
+        filename: The filename to format
+
+    Returns:
+        The filename, possibly wrapped in ANSI red color codes
+    """
+    if is_suspicious_file(filename):
+        return f"{RED}{filename}{RESET}"
+    return filename
+
 
 class InputTimeoutError(Exception):
     """Raised when input times out."""

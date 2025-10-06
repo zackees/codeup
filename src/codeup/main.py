@@ -44,6 +44,7 @@ from codeup.utils import (
     _to_exec_str,
     check_environment,
     configure_logging,
+    format_filename_with_warning,
     get_answer_yes_or_no,
     is_uv_project,
 )
@@ -283,6 +284,25 @@ def _main_worker() -> int:
         has_untracked = len(untracked_files) > 0
         if has_untracked:
             print("There are untracked files.")
+            # Check if running as subprocess (not in PTY) - if so, require all files to be staged
+            if not sys.stdin.isatty():
+                print(
+                    "Error: Untracked files detected when running as subprocess.",
+                    file=sys.stderr,
+                )
+                print(
+                    "All files must be staged before running codeup as a subprocess.",
+                    file=sys.stderr,
+                )
+                print("\nUntracked files:", file=sys.stderr)
+                for untracked_file in untracked_files:
+                    formatted_name = format_filename_with_warning(untracked_file)
+                    print(f"  {formatted_name}", file=sys.stderr)
+                print(
+                    "\nPlease stage these files with 'git add' or run codeup interactively.",
+                    file=sys.stderr,
+                )
+                return 1
             if args.pre_test:
                 # In pre-test mode, error out if there are untracked files
                 # This prevents blocking when codeup is called as a subcommand
@@ -295,7 +315,8 @@ def _main_worker() -> int:
                 )
                 print("\nUntracked files:", file=sys.stderr)
                 for untracked_file in untracked_files:
-                    print(f"  {untracked_file}", file=sys.stderr)
+                    formatted_name = format_filename_with_warning(untracked_file)
+                    print(f"  {formatted_name}", file=sys.stderr)
                 print(
                     "\nPlease add these files to git or run codeup without --pre-test flag.",
                     file=sys.stderr,
@@ -305,7 +326,8 @@ def _main_worker() -> int:
                 # In non-interactive mode, automatically add all untracked files
                 print("Non-interactive mode: automatically adding all untracked files.")
                 for untracked_file in untracked_files:
-                    print(f"  Adding {untracked_file}")
+                    formatted_name = format_filename_with_warning(untracked_file)
+                    print(f"  Adding {formatted_name}")
                     git_add_file(untracked_file)
             else:
                 answer_yes = get_answer_yes_or_no("Continue?", "y")
@@ -313,11 +335,12 @@ def _main_worker() -> int:
                     print("Aborting.")
                     return 1
                 for untracked_file in untracked_files:
-                    answer_yes = get_answer_yes_or_no(f"  Add {untracked_file}?", "y")
+                    formatted_name = format_filename_with_warning(untracked_file)
+                    answer_yes = get_answer_yes_or_no(f"  Add {formatted_name}?", "y")
                     if answer_yes:
                         git_add_file(untracked_file)
                     else:
-                        print(f"  Skipping {untracked_file}")
+                        print(f"  Skipping {formatted_name}")
         if os.path.exists("./lint") and not args.no_lint:
             print(LINTING_BANNER, end="")
 
