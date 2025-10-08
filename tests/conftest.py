@@ -1,8 +1,28 @@
 """Pytest configuration and fixtures for test optimization."""
 
+import sys
 from unittest.mock import patch
 
 import pytest
+
+
+def pytest_keyboard_interrupt(excinfo):
+    """Handle Ctrl-C gracefully without verbose traceback.
+
+    This prevents pytest-xdist from showing nested stack traces when
+    parallel test execution is interrupted.
+    """
+    print("\n\nTests interrupted by user (Ctrl-C)", file=sys.stderr)
+    # Return None to let pytest handle the exit, but suppress traceback formatting
+    return None
+
+
+def pytest_exception_interact(node, call, report):
+    """Prevent traceback formatting during KeyboardInterrupt."""
+    if call.excinfo and call.excinfo.type is KeyboardInterrupt:
+        # Suppress traceback formatting for KeyboardInterrupt
+        return True
+    return None
 
 
 @pytest.fixture
