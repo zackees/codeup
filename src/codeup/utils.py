@@ -274,6 +274,13 @@ def _exec(cmd: str, bash: bool, die=True) -> int:
         cmd_parts = shlex.split(cmd)
         logger.debug(f"Command parts: {cmd_parts}")
 
+        # Set up environment to force color output
+        # Note: RunningProcess doesn't accept env parameter, so we modify the global environment
+        original_force_color = os.environ.get("FORCE_COLOR")
+        original_clicolor_force = os.environ.get("CLICOLOR_FORCE")
+        os.environ["FORCE_COLOR"] = "1"
+        os.environ["CLICOLOR_FORCE"] = "1"  # For tools that use this variable
+
         # Use RunningProcess directly for better streaming
         rp = RunningProcess(
             command=cmd_parts,
@@ -291,9 +298,28 @@ def _exec(cmd: str, bash: bool, die=True) -> int:
 
         rp.wait()
         rtn = rp.returncode or 0
+
+        # Restore original environment variables
+        if original_force_color is None:
+            os.environ.pop("FORCE_COLOR", None)
+        else:
+            os.environ["FORCE_COLOR"] = original_force_color
+        if original_clicolor_force is None:
+            os.environ.pop("CLICOLOR_FORCE", None)
+        else:
+            os.environ["CLICOLOR_FORCE"] = original_clicolor_force
     except KeyboardInterrupt:
         logger.info("_exec interrupted by user")
         rp.kill()
+        # Restore original environment variables
+        if original_force_color is None:
+            os.environ.pop("FORCE_COLOR", None)
+        else:
+            os.environ["FORCE_COLOR"] = original_force_color
+        if original_clicolor_force is None:
+            os.environ.pop("CLICOLOR_FORCE", None)
+        else:
+            os.environ["CLICOLOR_FORCE"] = original_clicolor_force
         from codeup.git_utils import interrupt_main
 
         interrupt_main()
@@ -307,11 +333,29 @@ def _exec(cmd: str, bash: bool, die=True) -> int:
         logger.error("Stack trace of timeout location:")
         logger.error(traceback.format_exc())
         rp.kill()
+        # Restore original environment variables
+        if original_force_color is None:
+            os.environ.pop("FORCE_COLOR", None)
+        else:
+            os.environ["FORCE_COLOR"] = original_force_color
+        if original_clicolor_force is None:
+            os.environ.pop("CLICOLOR_FORCE", None)
+        else:
+            os.environ["CLICOLOR_FORCE"] = original_clicolor_force
         print(f"Command timed out: {e}", file=sys.stderr)
         rtn = 1
     except Exception as e:
         logger.error(f"Error in _exec: {e}")
         rp.kill()  # Kill the process on timeout or other exceptions
+        # Restore original environment variables
+        if original_force_color is None:
+            os.environ.pop("FORCE_COLOR", None)
+        else:
+            os.environ["FORCE_COLOR"] = original_force_color
+        if original_clicolor_force is None:
+            os.environ.pop("CLICOLOR_FORCE", None)
+        else:
+            os.environ["CLICOLOR_FORCE"] = original_clicolor_force
         print(f"Error executing command: {e}", file=sys.stderr)
         rtn = 1
 
