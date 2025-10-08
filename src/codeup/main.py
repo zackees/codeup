@@ -477,7 +477,9 @@ def _main_worker() -> int:
                     args.no_autoaccept, args.message, args.no_interactive
                 )
             else:
-                print("No modified tracked files to commit - only untracked files were added.")
+                print(
+                    "No modified tracked files to commit - only untracked files were added."
+                )
         else:
             print("Skipping git add and commit - no new changes to commit.")
 

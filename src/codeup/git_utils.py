@@ -465,7 +465,9 @@ def has_unpushed_commits() -> bool:
             unpushed_count = int(stdout.strip())
             return unpushed_count > 0
         except ValueError as e:
-            logger.error(f"Failed to parse unpushed commit count: {stdout.strip()!r}, error: {e}")
+            logger.error(
+                f"Failed to parse unpushed commit count: {stdout.strip()!r}, error: {e}"
+            )
             return False
 
     except KeyboardInterrupt:
