@@ -128,6 +128,9 @@ class ShebangProcessor:
                 rp = RunningProcess(
                     [path, "--version"], timeout=5, auto_run=True, check=False
                 )
+                # Consume output to prevent pipe buffer deadlock
+                for _ in rp.line_iter(timeout=5):
+                    pass
                 rp.wait()
                 if rp.returncode == 0:
                     return path
@@ -222,6 +225,14 @@ class ShebangProcessor:
                 rp_kwargs["timeout"] = kwargs["timeout"]
 
             rp = RunningProcess(command, auto_run=True, check=False, **rp_kwargs)
+
+            # Consume output to prevent pipe buffer deadlock
+            # Use the timeout from kwargs or default to 600 seconds
+            timeout_value = kwargs.get("timeout", 600)
+            for line in rp.line_iter(timeout=timeout_value):
+                # Stream output to stdout in real-time
+                print(line, flush=True)
+
             rp.wait()
             return rp.returncode or 0
         except (FileNotFoundError, OSError) as e:
