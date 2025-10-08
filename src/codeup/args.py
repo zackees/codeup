@@ -27,7 +27,7 @@ class Args:
 
     def __post_init__(self) -> None:
         assert isinstance(
-            self.repo, (str, type(None))
+            self.repo, str | type(None)
         ), f"Expected str, got {type(self.repo)}"
         assert isinstance(
             self.no_push, bool
@@ -48,7 +48,7 @@ class Args:
             self.no_autoaccept, bool
         ), f"Expected bool, got {type(self.no_autoaccept)}"
         assert isinstance(
-            self.message, (str, type(None))
+            self.message, str | type(None)
         ), f"Expected str, got {type(self.message)}"
         assert isinstance(
             self.no_rebase, bool
@@ -61,10 +61,10 @@ class Args:
             self.just_ai_commit, bool
         ), f"Expected bool, got {type(self.just_ai_commit)}"
         assert isinstance(
-            self.set_key_anthropic, (str, type(None))
+            self.set_key_anthropic, str | type(None)
         ), f"Expected (str, type(None)), got {type(self.set_key_anthropic)}"
         assert isinstance(
-            self.set_key_openai, (str, type(None))
+            self.set_key_openai, str | type(None)
         ), f"Expected (str, type(None)), got {type(self.set_key_openai)}"
         assert isinstance(
             self.dry_run, bool
