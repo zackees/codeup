@@ -17,6 +17,9 @@ import threading
 import time
 import traceback
 
+from running_process import RunningProcess
+from running_process.output_formatter import NullOutputFormatter
+
 from codeup.aicommit import ai_commit_or_prompt_for_commit_message
 from codeup.args import Args
 from codeup.console import error, git_status_summary, info, warning
@@ -38,10 +41,6 @@ from codeup.git_utils import (
     safe_push,
 )
 from codeup.keyring import set_anthropic_api_key, set_openai_api_key
-from codeup.running_process_adapter import (
-    run_command_with_streaming_and_capture,
-    set_activity_tracker,
-)
 from codeup.utils import (
     _exec,
     _publish,
@@ -87,6 +86,59 @@ if sys.platform == "win32":
 
 
 IS_UV_PROJECT = is_uv_project()
+
+# Global activity tracker for timeout handling
+_activity_tracker = None
+
+
+def _set_activity_tracker(tracker):
+    """Set the global activity tracker."""
+    global _activity_tracker
+    _activity_tracker = tracker
+
+
+def _run_command_streaming(
+    cmd: list[str],
+    shell: bool = False,
+    quiet: bool = False,
+    capture_output: bool = True,
+) -> tuple[int, str, str]:
+    """Run a command with RunningProcess and track activity for timeout."""
+    stdout_lines = []
+
+    rp = RunningProcess(
+        command=cmd,
+        shell=shell,
+        auto_run=True,
+        check=False,
+        output_formatter=NullOutputFormatter(),
+    )
+
+    try:
+        for line in rp.line_iter(timeout=300.0):
+            if capture_output:
+                stdout_lines.append(line)
+            if not quiet:
+                print(line, flush=True)
+
+            # Update activity tracker when we receive output
+            if _activity_tracker is not None:
+                _activity_tracker[0] = time.time()
+    except KeyboardInterrupt:
+        rp.kill()
+        from codeup.git_utils import interrupt_main
+
+        interrupt_main()
+        raise
+    except Exception as e:
+        logger.warning(
+            f"Exception during line iteration (streaming may be affected): {e}"
+        )
+        pass
+
+    rp.wait()
+    stdout_text = "\n".join(stdout_lines) if capture_output else ""
+    return rp.returncode or 0, stdout_text, ""
 
 
 def _main_worker() -> int:
@@ -156,7 +208,7 @@ def _main_worker() -> int:
 
                     print(f"Running: {cmd}")
                     # Run with streaming AND capture for dependency detection
-                    rtn, stdout, stderr = run_command_with_streaming_and_capture(
+                    rtn, stdout, stderr = _run_command_streaming(
                         cmd_parts,
                         shell=True,
                         quiet=False,  # Stream output in real-time
@@ -219,7 +271,7 @@ def _main_worker() -> int:
                     logger.debug(f"Running test with command parts: {test_cmd_parts}")
 
                     # Run tests with streaming output (no need to capture for tests)
-                    rtn, _, _ = run_command_with_streaming_and_capture(
+                    rtn, _, _ = _run_command_streaming(
                         test_cmd_parts,
                         shell=True,
                         quiet=False,  # Stream output in real-time
@@ -289,10 +341,9 @@ def _main_worker() -> int:
             try:
                 upstream_branch = get_upstream_branch()
                 if upstream_branch:
-                    exit_code, stdout, _ = run_command_with_streaming_and_capture(
+                    exit_code, stdout, _ = _run_command_streaming(
                         ["git", "rev-list", "--count", f"{upstream_branch}..HEAD"],
                         quiet=True,
-                        raw_output=True,
                     )
                     if exit_code == 0:
                         unpushed_count = int(stdout.strip())
@@ -379,7 +430,7 @@ def _main_worker() -> int:
 
                 print(f"Running: {cmd}")
                 # Run with streaming AND capture for dependency detection
-                rtn, stdout, stderr = run_command_with_streaming_and_capture(
+                rtn, stdout, stderr = _run_command_streaming(
                     cmd_parts,
                     shell=True,
                     quiet=False,  # Stream output in real-time
@@ -449,7 +500,7 @@ def _main_worker() -> int:
                 logger.debug(f"Running test with command parts: {test_cmd_parts}")
 
                 # Run tests with streaming output (no need to capture for tests)
-                rtn, _, _ = run_command_with_streaming_and_capture(
+                rtn, _, _ = _run_command_streaming(
                     test_cmd_parts,
                     shell=True,
                     quiet=False,  # Stream output in real-time
@@ -709,8 +760,8 @@ def main() -> int:
     # Global variable to track the last activity time for test output monitoring
     last_activity_time = [time.time()]
 
-    # Set up the activity tracker for the running_process_adapter
-    set_activity_tracker(last_activity_time)
+    # Set up the activity tracker
+    _set_activity_tracker(last_activity_time)
 
     def timeout_handler():
         """Handle timeout by checking test output activity every 5 minutes."""

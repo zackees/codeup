@@ -10,8 +10,10 @@ import warnings
 from pathlib import Path
 from shutil import which
 
+from running_process import RunningProcess
+from running_process.output_formatter import NullOutputFormatter
+
 from codeup.git_utils import find_git_directory
-from codeup.running_process_adapter import run_command_with_streaming
 
 logger = logging.getLogger(__name__)
 
@@ -268,17 +270,25 @@ def _exec(cmd: str, bash: bool, die=True) -> int:
     logger.debug(f"Bash mode: {bash}")
 
     try:
-        # Use our new streaming process management for better reliability
-        if bash:
-            # For bash commands on Windows, split the command properly for process execution
-            cmd_parts = shlex.split(cmd)
-            logger.debug(f"Command parts for bash: {cmd_parts}")
-            rtn = run_command_with_streaming(cmd_parts, shell=True)
-        else:
-            # For non-bash commands, split the command properly
-            cmd_parts = shlex.split(cmd)
-            logger.debug(f"Command parts for non-bash: {cmd_parts}")
-            rtn = run_command_with_streaming(cmd_parts)
+        # Split the command properly for process execution
+        cmd_parts = shlex.split(cmd)
+        logger.debug(f"Command parts: {cmd_parts}")
+
+        # Use RunningProcess directly for better streaming
+        rp = RunningProcess(
+            command=cmd_parts,
+            shell=bash,
+            auto_run=True,
+            check=False,
+            output_formatter=NullOutputFormatter(),
+        )
+
+        # Stream output in real-time
+        for line in rp.line_iter(timeout=300.0):
+            print(line, flush=True)
+
+        rp.wait()
+        rtn = rp.returncode or 0
     except KeyboardInterrupt:
         logger.info("_exec interrupted by user")
         from codeup.git_utils import interrupt_main

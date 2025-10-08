@@ -5,10 +5,50 @@ import logging
 import os
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 
-from codeup.running_process_adapter import run_command_with_streaming_and_capture
+from running_process import RunningProcess
+from running_process.output_formatter import NullOutputFormatter
 
 logger = logging.getLogger(__name__)
+
+
+def _run_git_command(
+    cmd: list[str],
+    quiet: bool = False,
+    capture_output: bool = True,
+    cwd: str | None = None,
+) -> tuple[int, str, str]:
+    """Run a git command using RunningProcess and return (exit_code, stdout, stderr)."""
+    stdout_lines = []
+
+    rp = RunningProcess(
+        command=cmd,
+        cwd=Path(cwd) if cwd else None,
+        auto_run=True,
+        check=False,
+        output_formatter=NullOutputFormatter(),
+    )
+
+    try:
+        for line in rp.line_iter(timeout=300.0):  # 5 minute timeout
+            if capture_output:
+                stdout_lines.append(line)
+            if not quiet:
+                print(line, flush=True)
+    except KeyboardInterrupt:
+        rp.kill()
+        interrupt_main()
+        raise
+    except Exception as e:
+        logger.warning(
+            f"Exception during line iteration (streaming may be affected): {e}"
+        )
+        pass
+
+    rp.wait()
+    stdout_text = "\n".join(stdout_lines) if capture_output else ""
+    return rp.returncode or 0, stdout_text, ""
 
 
 def interrupt_main() -> None:
@@ -31,7 +71,7 @@ def safe_git_commit(message: str) -> int:
     """Safely execute git commit with proper UTF-8 encoding."""
     try:
         print(f'Running: git commit -m "{message}"')
-        exit_code, _, _ = run_command_with_streaming_and_capture(
+        exit_code, _, _ = _run_git_command(
             ["git", "commit", "-m", message],
             capture_output=False,  # Let output go to console directly
         )
@@ -51,10 +91,9 @@ def safe_git_commit(message: str) -> int:
 def get_git_status() -> str:
     """Get git status output."""
     try:
-        exit_code, stdout, stderr = run_command_with_streaming_and_capture(
+        exit_code, stdout, stderr = _run_git_command(
             ["git", "status"],
             quiet=True,
-            check=True,
         )
         return stdout
     except KeyboardInterrupt:
@@ -69,11 +108,9 @@ def get_git_status() -> str:
 def get_git_diff_cached() -> str:
     """Get staged changes diff."""
     try:
-        exit_code, stdout, stderr = run_command_with_streaming_and_capture(
+        exit_code, stdout, stderr = _run_git_command(
             ["git", "diff", "--cached"],
             quiet=True,  # Quiet for AI commit generation
-            raw_output=True,  # Raw output for clean diff
-            check=True,
         )
         return stdout.strip()
     except KeyboardInterrupt:
@@ -88,11 +125,9 @@ def get_git_diff_cached() -> str:
 def get_git_diff() -> str:
     """Get unstaged changes diff."""
     try:
-        exit_code, stdout, stderr = run_command_with_streaming_and_capture(
+        exit_code, stdout, stderr = _run_git_command(
             ["git", "diff"],
             quiet=True,  # Quiet for AI commit generation
-            raw_output=True,  # Raw output for clean diff
-            check=True,
         )
         return stdout.strip()
     except KeyboardInterrupt:
@@ -107,10 +142,9 @@ def get_git_diff() -> str:
 def get_staged_files() -> list[str]:
     """Get list of staged file names."""
     try:
-        exit_code, stdout, stderr = run_command_with_streaming_and_capture(
+        exit_code, stdout, stderr = _run_git_command(
             ["git", "diff", "--cached", "--name-only"],
             quiet=True,
-            check=True,
         )
         # Filter out git warnings (lines starting with "warning:")
         return [
@@ -130,10 +164,9 @@ def get_staged_files() -> list[str]:
 def get_unstaged_files() -> list[str]:
     """Get list of unstaged file names."""
     try:
-        exit_code, stdout, stderr = run_command_with_streaming_and_capture(
+        exit_code, stdout, stderr = _run_git_command(
             ["git", "diff", "--name-only"],
             quiet=True,
-            check=True,
         )
         # Filter out git warnings (lines starting with "warning:")
         return [
@@ -153,10 +186,9 @@ def get_unstaged_files() -> list[str]:
 def get_untracked_files() -> list[str]:
     """Get list of untracked files."""
     try:
-        exit_code, stdout, stderr = run_command_with_streaming_and_capture(
+        exit_code, stdout, stderr = _run_git_command(
             ["git", "ls-files", "--others", "--exclude-standard"],
             quiet=True,
-            check=True,
         )
 
         return [f.strip() for f in stdout.splitlines() if f.strip()]
@@ -173,7 +205,7 @@ def get_main_branch() -> str:
     """Get the main branch name (main, master, etc.)."""
     try:
         # Try to get the default branch from remote
-        exit_code, stdout, stderr = run_command_with_streaming_and_capture(
+        exit_code, stdout, stderr = _run_git_command(
             ["git", "symbolic-ref", "refs/remotes/origin/HEAD"],
             quiet=True,
         )
@@ -190,7 +222,7 @@ def get_main_branch() -> str:
     # Fallback: check common branch names
     for branch in ["main", "master"]:
         try:
-            exit_code, stdout, stderr = run_command_with_streaming_and_capture(
+            exit_code, stdout, stderr = _run_git_command(
                 ["git", "rev-parse", "--verify", f"origin/{branch}"],
                 quiet=True,
             )
@@ -211,10 +243,9 @@ def get_current_branch() -> str:
     """Get the current branch name."""
     try:
         print("Running: git branch --show-current")
-        exit_code, stdout, stderr = run_command_with_streaming_and_capture(
+        exit_code, stdout, stderr = _run_git_command(
             ["git", "branch", "--show-current"],
             quiet=False,  # Enable streaming to see what's happening
-            check=True,
         )
         return stdout.strip()
     except KeyboardInterrupt:
@@ -229,7 +260,7 @@ def get_current_branch() -> str:
 def get_upstream_branch() -> str:
     """Get the upstream tracking branch for the current branch."""
     try:
-        exit_code, stdout, stderr = run_command_with_streaming_and_capture(
+        exit_code, stdout, stderr = _run_git_command(
             ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
             quiet=True,
         )
@@ -255,11 +286,9 @@ def get_remote_branch_hash(target_branch: str) -> str:
             if target_branch.startswith("origin/")
             else f"origin/{target_branch}"
         )
-        exit_code, stdout, stderr = run_command_with_streaming_and_capture(
+        exit_code, stdout, stderr = _run_git_command(
             ["git", "rev-parse", remote_ref],
             quiet=False,
-            check=True,
-            raw_output=True,
         )
         return stdout.strip()
     except KeyboardInterrupt:
@@ -280,11 +309,9 @@ def get_merge_base(target_branch: str) -> str:
             if target_branch.startswith("origin/")
             else f"origin/{target_branch}"
         )
-        exit_code, stdout, stderr = run_command_with_streaming_and_capture(
+        exit_code, stdout, stderr = _run_git_command(
             ["git", "merge-base", "HEAD", remote_ref],
             quiet=False,
-            check=True,
-            raw_output=True,
         )
         return stdout.strip()
     except KeyboardInterrupt:
@@ -329,7 +356,7 @@ def attempt_rebase(target_branch: str) -> tuple[bool, bool]:
         )
 
         # Attempt the actual rebase
-        exit_code, stdout, stderr = run_command_with_streaming_and_capture(
+        exit_code, stdout, stderr = _run_git_command(
             ["git", "rebase", remote_ref],
             quiet=False,
         )
@@ -351,11 +378,9 @@ def attempt_rebase(target_branch: str) -> tuple[bool, bool]:
             ):
                 logger.info("Rebase failed due to conflicts, aborting rebase")
                 # Abort the rebase to return to clean state
-                abort_exit_code, abort_stdout, abort_stderr = (
-                    run_command_with_streaming_and_capture(
-                        ["git", "rebase", "--abort"],
-                        quiet=False,
-                    )
+                abort_exit_code, abort_stdout, abort_stderr = _run_git_command(
+                    ["git", "rebase", "--abort"],
+                    quiet=False,
                 )
 
                 if abort_exit_code != 0:
@@ -398,13 +423,13 @@ def git_push() -> tuple[bool, str]:
             print(
                 f"No upstream set for branch '{current_branch}', setting upstream to origin/{current_branch}"
             )
-            exit_code, stdout, stderr = run_command_with_streaming_and_capture(
+            exit_code, stdout, stderr = _run_git_command(
                 ["git", "push", "--set-upstream", "origin", current_branch],
                 quiet=False,
             )
         else:
             # Normal push when upstream is already set
-            exit_code, stdout, stderr = run_command_with_streaming_and_capture(
+            exit_code, stdout, stderr = _run_git_command(
                 ["git", "push"],
                 quiet=False,
             )
@@ -457,10 +482,9 @@ def has_unpushed_commits() -> bool:
             return False
 
         # Count commits that are in HEAD but not in upstream
-        exit_code, stdout, stderr = run_command_with_streaming_and_capture(
+        exit_code, stdout, stderr = _run_git_command(
             ["git", "rev-list", "--count", f"{upstream_branch}..HEAD"],
             quiet=True,
-            raw_output=True,
         )
 
         if exit_code != 0:
@@ -493,10 +517,9 @@ def get_unpushed_commit_files() -> list[str]:
             return []
 
         # Get files changed in unpushed commits
-        exit_code, stdout, stderr = run_command_with_streaming_and_capture(
+        exit_code, stdout, stderr = _run_git_command(
             ["git", "diff", "--name-only", f"{upstream_branch}..HEAD"],
             quiet=True,
-            raw_output=True,
         )
 
         if exit_code != 0:
@@ -560,7 +583,7 @@ def git_add_all() -> int:
     """Run 'git add .' command."""
     try:
         print("Running: git add .")
-        exit_code, _, _ = run_command_with_streaming_and_capture(
+        exit_code, _, _ = _run_git_command(
             ["git", "add", "."],
             capture_output=False,
         )
@@ -581,7 +604,7 @@ def git_add_file(filename: str) -> int:
     """Run 'git add <filename>' command."""
     try:
         print(f"Running: git add {filename}")
-        exit_code, _, _ = run_command_with_streaming_and_capture(
+        exit_code, _, _ = _run_git_command(
             ["git", "add", filename],
             capture_output=False,
         )
@@ -602,7 +625,7 @@ def git_fetch() -> int:
     """Run 'git fetch' command."""
     try:
         print("Running: git fetch")
-        exit_code, _, _ = run_command_with_streaming_and_capture(
+        exit_code, _, _ = _run_git_command(
             ["git", "fetch"],
             capture_output=False,
         )
@@ -708,8 +731,8 @@ def safe_push() -> bool:
 def capture_pre_rebase_state() -> str:
     """Capture current state for potential rollback."""
     try:
-        exit_code, head_hash, _ = run_command_with_streaming_and_capture(
-            ["git", "rev-parse", "HEAD"], quiet=True, raw_output=True
+        exit_code, head_hash, _ = _run_git_command(
+            ["git", "rev-parse", "HEAD"], quiet=True
         )
         if exit_code != 0:
             logger.error(f"Failed to capture pre-rebase state: exit code {exit_code}")
@@ -718,8 +741,8 @@ def capture_pre_rebase_state() -> str:
         backup_ref = head_hash.strip()
 
         # CRITICAL: Validate backup reference exists
-        exit_code, _, _ = run_command_with_streaming_and_capture(
-            ["git", "cat-file", "-e", backup_ref], quiet=True, raw_output=True
+        exit_code, _, _ = _run_git_command(
+            ["git", "cat-file", "-e", backup_ref], quiet=True
         )
         if exit_code != 0:
             logger.error(f"Backup reference {backup_ref} is invalid")
@@ -738,8 +761,8 @@ def capture_pre_rebase_state() -> str:
 def verify_clean_working_directory() -> bool:
     """Verify working directory is clean before rebase."""
     try:
-        exit_code, status_output, _ = run_command_with_streaming_and_capture(
-            ["git", "status", "--porcelain"], quiet=True, raw_output=True
+        exit_code, status_output, _ = _run_git_command(
+            ["git", "status", "--porcelain"], quiet=True
         )
         if exit_code == 0:
             return len(status_output.strip()) == 0
@@ -765,17 +788,15 @@ def emergency_rollback(backup_ref: str) -> bool:
 
     try:
         # CRITICAL: Check if rebase is in progress and abort first
-        exit_code, status_output, _ = run_command_with_streaming_and_capture(
-            ["git", "status", "--porcelain=v1"], quiet=True, raw_output=True
+        exit_code, status_output, _ = _run_git_command(
+            ["git", "status", "--porcelain=v1"], quiet=True
         )
         if exit_code == 0 and "rebase in progress" in status_output.lower():
             logger.info("Aborting active rebase before emergency rollback")
-            run_command_with_streaming_and_capture(
-                ["git", "rebase", "--abort"], quiet=False
-            )
+            _run_git_command(["git", "rebase", "--abort"], quiet=False)
 
         print(f"Performing emergency rollback to {backup_ref[:8]}...")
-        exit_code, _, stderr = run_command_with_streaming_and_capture(
+        exit_code, _, stderr = _run_git_command(
             ["git", "reset", "--hard", backup_ref], quiet=False
         )
         if exit_code == 0:
@@ -800,8 +821,8 @@ def verify_state_matches_backup(backup_ref: str) -> bool:
 
     try:
         # Check HEAD hash
-        exit_code, current_ref, _ = run_command_with_streaming_and_capture(
-            ["git", "rev-parse", "HEAD"], quiet=True, raw_output=True
+        exit_code, current_ref, _ = _run_git_command(
+            ["git", "rev-parse", "HEAD"], quiet=True
         )
         if exit_code != 0 or current_ref.strip() != backup_ref:
             return False
@@ -821,7 +842,7 @@ def execute_enhanced_abort(backup_ref: str) -> bool:
     """Enhanced rebase abort with state verification."""
     try:
         print("Aborting rebase and restoring clean state...")
-        abort_exit_code, _, abort_stderr = run_command_with_streaming_and_capture(
+        abort_exit_code, _, abort_stderr = _run_git_command(
             ["git", "rebase", "--abort"], quiet=False
         )
 
@@ -926,8 +947,8 @@ def verify_rebase_success(target_branch: str) -> bool:
             logger.warning("Working directory not clean after rebase")
             return False
 
-        exit_code, _, _ = run_command_with_streaming_and_capture(
-            ["git", "rev-parse", "--verify", "HEAD"], quiet=True, raw_output=True
+        exit_code, _, _ = _run_git_command(
+            ["git", "rev-parse", "--verify", "HEAD"], quiet=True
         )
         if exit_code != 0:
             logger.error("HEAD reference is invalid after rebase")
@@ -990,7 +1011,7 @@ def enhanced_attempt_rebase(target_branch: str) -> RebaseResult:
             else f"origin/{target_branch}"
         )
         print(f"Attempting rebase onto {remote_ref}...")
-        exit_code, stdout, stderr = run_command_with_streaming_and_capture(
+        exit_code, stdout, stderr = _run_git_command(
             ["git", "rebase", remote_ref],
             quiet=False,
         )

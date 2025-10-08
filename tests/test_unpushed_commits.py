@@ -147,9 +147,7 @@ class UnpushedCommitsTest(unittest.TestCase):
             from codeup.git_utils import has_unpushed_commits
 
             # Mock the run_command function to return invalid output
-            with patch(
-                "codeup.git_utils.run_command_with_streaming_and_capture"
-            ) as mock_run:
+            with patch("codeup.git_utils._run_git_command") as mock_run:
                 # First call is get_upstream_branch - return a valid upstream
                 # Second call is the rev-list count - return invalid output
                 mock_run.side_effect = [

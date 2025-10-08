@@ -16,9 +16,7 @@ class RebaseTargetLogicTester(unittest.TestCase):
 
     def test_get_upstream_branch_with_tracking(self):
         """Test get_upstream_branch when branch has upstream tracking."""
-        with patch(
-            "codeup.git_utils.run_command_with_streaming_and_capture"
-        ) as mock_run:
+        with patch("codeup.git_utils._run_git_command") as mock_run:
             # Mock successful upstream detection
             mock_run.return_value = (0, "origin/feature-xyz", "")
 
@@ -32,9 +30,7 @@ class RebaseTargetLogicTester(unittest.TestCase):
 
     def test_get_upstream_branch_without_tracking(self):
         """Test get_upstream_branch when branch has no upstream tracking."""
-        with patch(
-            "codeup.git_utils.run_command_with_streaming_and_capture"
-        ) as mock_run:
+        with patch("codeup.git_utils._run_git_command") as mock_run:
             # Mock no upstream (command fails)
             mock_run.return_value = (1, "", "fatal: no upstream configured")
 
@@ -137,7 +133,7 @@ class RebaseTargetLogicTester(unittest.TestCase):
         mock_check_rebase_needed.assert_not_called()
         mock_attempt_rebase.assert_not_called()
 
-    @patch("codeup.git_utils.run_command_with_streaming_and_capture")
+    @patch("codeup.git_utils._run_git_command")
     @patch("codeup.git_utils.get_upstream_branch")
     @patch("codeup.git_utils.get_current_branch")
     def test_git_push_sets_upstream_for_new_branch(
@@ -165,7 +161,7 @@ class RebaseTargetLogicTester(unittest.TestCase):
             "No upstream set for branch 'new-feature', setting upstream to origin/new-feature"
         )
 
-    @patch("codeup.git_utils.run_command_with_streaming_and_capture")
+    @patch("codeup.git_utils._run_git_command")
     @patch("codeup.git_utils.get_upstream_branch")
     @patch("codeup.git_utils.get_current_branch")
     def test_git_push_normal_with_upstream(
@@ -188,7 +184,7 @@ class RebaseTargetLogicTester(unittest.TestCase):
         )
 
     @patch("codeup.git_utils.git_fetch")
-    @patch("codeup.git_utils.run_command_with_streaming_and_capture")
+    @patch("codeup.git_utils._run_git_command")
     @patch("codeup.git_utils.capture_pre_rebase_state")
     @patch("codeup.git_utils.verify_clean_working_directory")
     def test_enhanced_attempt_rebase_uses_correct_target(
@@ -230,7 +226,7 @@ class RebaseTargetLogicTester(unittest.TestCase):
         )
 
     @patch("codeup.git_utils.git_fetch")
-    @patch("codeup.git_utils.run_command_with_streaming_and_capture")
+    @patch("codeup.git_utils._run_git_command")
     @patch("codeup.git_utils.capture_pre_rebase_state")
     @patch("codeup.git_utils.verify_clean_working_directory")
     def test_enhanced_attempt_rebase_handles_origin_prefix(

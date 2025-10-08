@@ -145,9 +145,7 @@ class CodeupTester(unittest.TestCase):
             # Test case 1: --dry-run (should run both lint and test)
             with (
                 patch("sys.argv", ["codeup", "--dry-run"]),
-                patch(
-                    "codeup.main.run_command_with_streaming_and_capture"
-                ) as mock_run_cmd,
+                patch("codeup.main._run_command_streaming") as mock_run_cmd,
                 patch("os.path.exists") as mock_exists,
                 patch(
                     "codeup.main.check_environment", return_value=Path(self.test_dir)
@@ -185,9 +183,7 @@ class CodeupTester(unittest.TestCase):
             # Test case 2: --dry-run --lint (should run only lint)
             with (
                 patch("sys.argv", ["codeup", "--dry-run", "--lint"]),
-                patch(
-                    "codeup.main.run_command_with_streaming_and_capture"
-                ) as mock_run_cmd,
+                patch("codeup.main._run_command_streaming") as mock_run_cmd,
                 patch("os.path.exists") as mock_exists,
                 patch(
                     "codeup.main.check_environment", return_value=Path(self.test_dir)
@@ -214,9 +210,7 @@ class CodeupTester(unittest.TestCase):
             # Test case 3: --dry-run --test (should run only test)
             with (
                 patch("sys.argv", ["codeup", "--dry-run", "--test"]),
-                patch(
-                    "codeup.main.run_command_with_streaming_and_capture"
-                ) as mock_run_cmd,
+                patch("codeup.main._run_command_streaming") as mock_run_cmd,
                 patch("os.path.exists") as mock_exists,
                 patch(
                     "codeup.main.check_environment", return_value=Path(self.test_dir)
@@ -243,9 +237,7 @@ class CodeupTester(unittest.TestCase):
             # Test case 4: --dry-run --no-lint (should run only test)
             with (
                 patch("sys.argv", ["codeup", "--dry-run", "--no-lint"]),
-                patch(
-                    "codeup.main.run_command_with_streaming_and_capture"
-                ) as mock_run_cmd,
+                patch("codeup.main._run_command_streaming") as mock_run_cmd,
                 patch("os.path.exists") as mock_exists,
                 patch(
                     "codeup.main.check_environment", return_value=Path(self.test_dir)
@@ -274,9 +266,7 @@ class CodeupTester(unittest.TestCase):
             # Test case 5: --dry-run --no-test (should run only lint)
             with (
                 patch("sys.argv", ["codeup", "--dry-run", "--no-test"]),
-                patch(
-                    "codeup.main.run_command_with_streaming_and_capture"
-                ) as mock_run_cmd,
+                patch("codeup.main._run_command_streaming") as mock_run_cmd,
                 patch("os.path.exists") as mock_exists,
                 patch(
                     "codeup.main.check_environment", return_value=Path(self.test_dir)
@@ -305,9 +295,7 @@ class CodeupTester(unittest.TestCase):
             # Test case 6: --dry-run --lint --test (should run both)
             with (
                 patch("sys.argv", ["codeup", "--dry-run", "--lint", "--test"]),
-                patch(
-                    "codeup.main.run_command_with_streaming_and_capture"
-                ) as mock_run_cmd,
+                patch("codeup.main._run_command_streaming") as mock_run_cmd,
                 patch("os.path.exists") as mock_exists,
                 patch(
                     "codeup.main.check_environment", return_value=Path(self.test_dir)
@@ -331,9 +319,7 @@ class CodeupTester(unittest.TestCase):
             # Test case 7: --dry-run with lint failure
             with (
                 patch("sys.argv", ["codeup", "--dry-run"]),
-                patch(
-                    "codeup.main.run_command_with_streaming_and_capture"
-                ) as mock_run_cmd,
+                patch("codeup.main._run_command_streaming") as mock_run_cmd,
                 patch("os.path.exists") as mock_exists,
                 patch(
                     "codeup.main.check_environment", return_value=Path(self.test_dir)
@@ -354,9 +340,7 @@ class CodeupTester(unittest.TestCase):
             # Test case 8: --dry-run --no-lint --no-test (should run nothing)
             with (
                 patch("sys.argv", ["codeup", "--dry-run", "--no-lint", "--no-test"]),
-                patch(
-                    "codeup.main.run_command_with_streaming_and_capture"
-                ) as mock_run_cmd,
+                patch("codeup.main._run_command_streaming") as mock_run_cmd,
                 patch("os.path.exists") as mock_exists,
                 patch(
                     "codeup.main.check_environment", return_value=Path(self.test_dir)
