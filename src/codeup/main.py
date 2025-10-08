@@ -303,7 +303,11 @@ def _main_worker() -> int:
 
         # Display clean, color-coded status summary
         git_status_summary(
-            staged_files, unstaged_files, untracked_files, unpushed_count, unpushed_files
+            staged_files,
+            unstaged_files,
+            untracked_files,
+            unpushed_count,
+            unpushed_files,
         )
 
         # Check if there are any changes to commit

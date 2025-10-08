@@ -57,7 +57,7 @@ class GitOperationsTester(unittest.TestCase):
         sys.path.insert(0, src_path)
 
         try:
-            from codeup.main import get_git_status, has_changes_to_commit
+            from codeup.git_utils import get_git_status, has_changes_to_commit
 
             # Initially should have no changes
             self.assertFalse(
@@ -91,7 +91,7 @@ class GitOperationsTester(unittest.TestCase):
         sys.path.insert(0, src_path)
 
         try:
-            from codeup.main import get_untracked_files, has_changes_to_commit
+            from codeup.git_utils import get_untracked_files, has_changes_to_commit
 
             # Add an untracked file
             with open("new_file.txt", "w") as f:
@@ -120,7 +120,7 @@ class GitOperationsTester(unittest.TestCase):
         sys.path.insert(0, src_path)
 
         try:
-            from codeup.main import get_current_branch, get_main_branch
+            from codeup.git_utils import get_current_branch, get_main_branch
 
             # Test current branch detection
             current = get_current_branch()
