@@ -463,16 +463,21 @@ def _main_worker() -> int:
 
         # Handle git add and commit based on whether we have changes
         if has_changes:
+            # Check if there are modified tracked files BEFORE git add
+            # This is important because after git add, we can't distinguish between
+            # modified tracked files and newly added untracked files
+            should_commit = has_modified_tracked_files()
+
             _exec("git add .", bash=False)
 
-            # Only create a commit if there are modified tracked files
+            # Only create a commit if there were modified tracked files before git add
             # (i.e., don't commit if only untracked files were added)
-            if has_modified_tracked_files():
+            if should_commit:
                 ai_commit_or_prompt_for_commit_message(
                     args.no_autoaccept, args.message, args.no_interactive
                 )
             else:
-                print("No modified tracked files to commit after git add.")
+                print("No modified tracked files to commit - only untracked files were added.")
         else:
             print("Skipping git add and commit - no new changes to commit.")
 

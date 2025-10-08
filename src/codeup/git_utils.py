@@ -461,8 +461,12 @@ def has_unpushed_commits() -> bool:
             logger.error(f"Failed to check unpushed commits: {stderr}")
             return False
 
-        unpushed_count = int(stdout.strip())
-        return unpushed_count > 0
+        try:
+            unpushed_count = int(stdout.strip())
+            return unpushed_count > 0
+        except ValueError as e:
+            logger.error(f"Failed to parse unpushed commit count: {stdout.strip()!r}, error: {e}")
+            return False
 
     except KeyboardInterrupt:
         logger.info("has_unpushed_commits interrupted by user")
