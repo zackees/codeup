@@ -859,8 +859,7 @@ def main() -> int:
     except KeyboardInterrupt:
         logger.info("Main thread interrupted by user")
         print("Aborting", file=sys.stderr)
-        # Give worker thread a moment to clean up
-        worker_thread.join(timeout=1.0)
+        # Don't wait for worker - it's already interrupted, just exit
         return 1
 
 
