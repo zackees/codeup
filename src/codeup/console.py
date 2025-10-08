@@ -45,6 +45,7 @@ def git_status_summary(
     unstaged: list[str],
     untracked: list[str],
     unpushed_count: int = 0,
+    unpushed_files: list[str] | None = None,
 ) -> None:
     """Print a clean, color-coded git status summary.
 
@@ -53,7 +54,11 @@ def git_status_summary(
         unstaged: List of unstaged files
         untracked: List of untracked files
         unpushed_count: Number of unpushed commits
+        unpushed_files: List of files in unpushed commits
     """
+    if unpushed_files is None:
+        unpushed_files = []
+
     has_changes = bool(staged or unstaged or untracked or unpushed_count)
 
     if not has_changes:
@@ -75,6 +80,13 @@ def git_status_summary(
 
     status_header(f"Status: {', '.join(parts)}")
     print()  # Add blank line for readability
+
+    # Show unpushed files first if only unpushed commits exist
+    if unpushed_files and not (staged or unstaged or untracked):
+        print(f"{Fore.MAGENTA}↑ Files in unpushed commits:{Style.RESET_ALL}")
+        for file in unpushed_files:
+            print(f"  {Fore.MAGENTA}● {file}{Style.RESET_ALL}")
+        print()
 
     # Show detailed file lists with color coding
     if staged:

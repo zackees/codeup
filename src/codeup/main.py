@@ -26,6 +26,7 @@ from codeup.git_utils import (
     get_current_branch,
     get_main_branch,
     get_staged_files,
+    get_unpushed_commit_files,
     get_unstaged_files,
     get_untracked_files,
     get_upstream_branch,
@@ -281,8 +282,9 @@ def _main_worker() -> int:
         untracked_files = get_untracked_files()
         has_unpushed = has_unpushed_commits()
 
-        # Get unpushed commit count for display
+        # Get unpushed commit count and files for display
         unpushed_count = 0
+        unpushed_files = []
         if has_unpushed:
             try:
                 upstream_branch = get_upstream_branch()
@@ -294,12 +296,14 @@ def _main_worker() -> int:
                     )
                     if exit_code == 0:
                         unpushed_count = int(stdout.strip())
+                    # Get files in unpushed commits
+                    unpushed_files = get_unpushed_commit_files()
             except (KeyboardInterrupt, Exception):
                 pass
 
         # Display clean, color-coded status summary
         git_status_summary(
-            staged_files, unstaged_files, untracked_files, unpushed_count
+            staged_files, unstaged_files, untracked_files, unpushed_count, unpushed_files
         )
 
         # Check if there are any changes to commit

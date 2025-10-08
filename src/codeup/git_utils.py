@@ -485,6 +485,40 @@ def has_unpushed_commits() -> bool:
         return False
 
 
+def get_unpushed_commit_files() -> list[str]:
+    """Get list of files changed in unpushed commits."""
+    try:
+        upstream_branch = get_upstream_branch()
+        if not upstream_branch:
+            return []
+
+        # Get files changed in unpushed commits
+        exit_code, stdout, stderr = run_command_with_streaming_and_capture(
+            ["git", "diff", "--name-only", f"{upstream_branch}..HEAD"],
+            quiet=True,
+            raw_output=True,
+        )
+
+        if exit_code != 0:
+            logger.error(f"Failed to get unpushed commit files: {stderr}")
+            return []
+
+        # Filter out git warnings (lines starting with "warning:")
+        return [
+            f.strip()
+            for f in stdout.splitlines()
+            if f.strip() and not f.strip().startswith("warning:")
+        ]
+
+    except KeyboardInterrupt:
+        logger.info("get_unpushed_commit_files interrupted by user")
+        interrupt_main()
+        raise
+    except Exception as e:
+        logger.error(f"Error getting unpushed commit files: {e}")
+        return []
+
+
 def has_modified_tracked_files() -> bool:
     """Check if there are any modified files that are already tracked by git."""
     try:
