@@ -41,6 +41,7 @@ from codeup.git_utils import (
     safe_push,
 )
 from codeup.keyring import set_anthropic_api_key, set_openai_api_key
+from codeup.timestamp_formatter import TimestampOutputFormatter
 from codeup.utils import (
     _exec,
     _publish,
@@ -78,6 +79,9 @@ if sys.platform == "win32":
     # Force UTF-8 encoding for all subprocess operations on Windows
     os.environ["PYTHONIOENCODING"] = "utf-8"
     os.environ["PYTHONLEGACYWINDOWSSTDIO"] = "0"
+    # Force unbuffered output for all Python subprocesses to prevent stdout buffering issues
+    # when output is piped (prevents multi-second delays in test output)
+    os.environ["PYTHONUNBUFFERED"] = "1"
 
     if sys.stdout.encoding != "utf-8":
         sys.stdout = codecs.getwriter("utf-8")(sys.stdout.buffer, "strict")
@@ -102,16 +106,20 @@ def _run_command_streaming(
     shell: bool = False,
     quiet: bool = False,
     capture_output: bool = True,
+    output_formatter=None,
 ) -> tuple[int, str, str]:
     """Run a command with RunningProcess and track activity for timeout."""
     stdout_lines = []
+
+    if output_formatter is None:
+        output_formatter = NullOutputFormatter()
 
     rp = RunningProcess(
         command=cmd,
         shell=shell,
         auto_run=True,
         check=False,
-        output_formatter=NullOutputFormatter(),
+        output_formatter=output_formatter,
     )
 
     try:
@@ -223,6 +231,7 @@ def _main_worker() -> int:
                         shell=True,
                         quiet=False,  # Stream output in real-time
                         capture_output=True,  # Also capture for dependency checking
+                        output_formatter=TimestampOutputFormatter(),
                     )
 
                     # Check captured output for dependency resolution issues
@@ -286,6 +295,7 @@ def _main_worker() -> int:
                         shell=True,
                         quiet=False,  # Stream output in real-time
                         capture_output=False,  # No need to capture test output
+                        output_formatter=TimestampOutputFormatter(),
                     )
                     if rtn != 0:
                         print("Error: Tests failed.")
@@ -445,6 +455,7 @@ def _main_worker() -> int:
                     shell=True,
                     quiet=False,  # Stream output in real-time
                     capture_output=True,  # Also capture for dependency checking
+                    output_formatter=TimestampOutputFormatter(),
                 )
 
                 # Check captured output for dependency resolution issues
@@ -515,6 +526,7 @@ def _main_worker() -> int:
                     shell=True,
                     quiet=False,  # Stream output in real-time
                     capture_output=False,  # No need to capture test output
+                    output_formatter=TimestampOutputFormatter(),
                 )
                 if rtn != 0:
                     print("Error: Tests failed.")
