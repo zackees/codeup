@@ -442,6 +442,61 @@ def has_changes_to_commit() -> bool:
         return False
 
 
+def has_unpushed_commits() -> bool:
+    """Check if there are any unpushed commits on the current branch."""
+    try:
+        upstream_branch = get_upstream_branch()
+        if not upstream_branch:
+            # No upstream branch set, can't determine unpushed commits
+            return False
+
+        # Count commits that are in HEAD but not in upstream
+        exit_code, stdout, stderr = run_command_with_streaming_and_capture(
+            ["git", "rev-list", "--count", f"{upstream_branch}..HEAD"],
+            quiet=True,
+            raw_output=True,
+        )
+
+        if exit_code != 0:
+            logger.error(f"Failed to check unpushed commits: {stderr}")
+            return False
+
+        unpushed_count = int(stdout.strip())
+        return unpushed_count > 0
+
+    except KeyboardInterrupt:
+        logger.info("has_unpushed_commits interrupted by user")
+        interrupt_main()
+        raise
+    except Exception as e:
+        logger.error(f"Error checking for unpushed commits: {e}")
+        return False
+
+
+def has_modified_tracked_files() -> bool:
+    """Check if there are any modified files that are already tracked by git."""
+    try:
+        # Get unstaged changes to tracked files
+        unstaged_files = get_unstaged_files()
+        if unstaged_files:
+            return True
+
+        # Get staged changes
+        staged_files = get_staged_files()
+        if staged_files:
+            return True
+
+        return False
+
+    except KeyboardInterrupt:
+        logger.info("has_modified_tracked_files interrupted by user")
+        interrupt_main()
+        raise
+    except Exception as e:
+        logger.error(f"Error checking for modified tracked files: {e}")
+        return False
+
+
 def find_git_directory() -> str:
     """Traverse up to 3 levels to find a directory with a .git folder."""
     current_dir = os.getcwd()

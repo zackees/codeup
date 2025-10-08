@@ -31,6 +31,8 @@ from codeup.git_utils import (
     git_add_file,
     git_fetch,
     has_changes_to_commit,
+    has_modified_tracked_files,
+    has_unpushed_commits,
     safe_push,
 )
 from codeup.keyring import set_anthropic_api_key, set_openai_api_key
@@ -276,12 +278,23 @@ def _main_worker() -> int:
         print(git_status_str)
 
         # Check if there are any changes to commit
-        if not has_changes_to_commit():
+        has_changes = has_changes_to_commit()
+        has_unpushed = has_unpushed_commits()
+
+        if not has_changes and not has_unpushed:
             print("No changes to commit, working tree clean.")
             return 1
 
-        untracked_files = get_untracked_files()
-        has_untracked = len(untracked_files) > 0
+        # Special case: unpushed commits without unstaged/untracked changes
+        if not has_changes and has_unpushed:
+            print("No unstaged changes, but there are unpushed commits.")
+            # Run linting and testing, then push
+            # Skip the untracked files check and git add since there are no changes
+            has_untracked = False
+        else:
+            untracked_files = get_untracked_files()
+            has_untracked = len(untracked_files) > 0
+
         if has_untracked:
             print("There are untracked files.")
             # Check if running as subprocess (not in PTY) - if so, require all files to be staged
@@ -447,10 +460,21 @@ def _main_worker() -> int:
                 logger.error(f"Error during testing: {e}")
                 print(f"Testing error: {e}", file=sys.stderr)
                 sys.exit(1)
-        _exec("git add .", bash=False)
-        ai_commit_or_prompt_for_commit_message(
-            args.no_autoaccept, args.message, args.no_interactive
-        )
+
+        # Handle git add and commit based on whether we have changes
+        if has_changes:
+            _exec("git add .", bash=False)
+
+            # Only create a commit if there are modified tracked files
+            # (i.e., don't commit if only untracked files were added)
+            if has_modified_tracked_files():
+                ai_commit_or_prompt_for_commit_message(
+                    args.no_autoaccept, args.message, args.no_interactive
+                )
+            else:
+                print("No modified tracked files to commit after git add.")
+        else:
+            print("Skipping git add and commit - no new changes to commit.")
 
         if not args.no_push:
             # Fetch latest changes from remote
