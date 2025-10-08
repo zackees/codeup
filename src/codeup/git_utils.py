@@ -80,21 +80,25 @@ class RebaseResult:
 def safe_git_commit(message: str) -> int:
     """Safely execute git commit with proper UTF-8 encoding."""
     try:
-        print(f'Running: git commit -m "{message}"')
+        from codeup.console import dim, error
+
+        dim(f'Running: git commit -m "{message}"')
         exit_code, _, _ = _run_git_command(
             ["git", "commit", "-m", message],
             capture_output=False,  # Let output go to console directly
         )
         if exit_code != 0:
-            print(f"Error: git commit returned {exit_code}")
+            error(f"git commit returned {exit_code}")
         return exit_code
     except KeyboardInterrupt:
         logger.info("safe_git_commit interrupted by user")
         interrupt_main()
         raise
     except Exception as e:
+        from codeup.console import error
+
         logger.error(f"Error in safe_git_commit: {e}")
-        print(f"Error executing git commit: {e}", file=sys.stderr)
+        error(f"Error executing git commit: {e}")
         return 1
 
 
@@ -252,7 +256,9 @@ def get_main_branch() -> str:
 def get_current_branch() -> str:
     """Get the current branch name."""
     try:
-        print("Running: git branch --show-current")
+        from codeup.console import dim
+
+        dim("Running: git branch --show-current")
         exit_code, stdout, stderr = _run_git_command(
             ["git", "branch", "--show-current"],
             quiet=False,  # Enable streaming to see what's happening
@@ -592,69 +598,83 @@ def find_git_directory() -> str:
 def git_add_all() -> int:
     """Run 'git add .' command."""
     try:
-        print("Running: git add .")
+        from codeup.console import dim, error
+
+        dim("Running: git add .")
         exit_code, _, _ = _run_git_command(
             ["git", "add", "."],
             capture_output=False,
         )
         if exit_code != 0:
-            print(f"Error: git add . returned {exit_code}")
+            error(f"git add . returned {exit_code}")
         return exit_code
     except KeyboardInterrupt:
         logger.info("git_add_all interrupted by user")
         interrupt_main()
         raise
     except Exception as e:
+        from codeup.console import error
+
         logger.error(f"Error in git_add_all: {e}")
-        print(f"Error executing git add .: {e}", file=sys.stderr)
+        error(f"Error executing git add .: {e}")
         return 1
 
 
 def git_add_file(filename: str) -> int:
     """Run 'git add <filename>' command."""
     try:
-        print(f"Running: git add {filename}")
+        from codeup.console import dim, error
+
+        dim(f"Running: git add {filename}")
         exit_code, _, _ = _run_git_command(
             ["git", "add", filename],
             capture_output=False,
         )
         if exit_code != 0:
-            print(f"Error: git add {filename} returned {exit_code}")
+            error(f"git add {filename} returned {exit_code}")
         return exit_code
     except KeyboardInterrupt:
         logger.info("git_add_file interrupted by user")
         interrupt_main()
         raise
     except Exception as e:
+        from codeup.console import error
+
         logger.error(f"Error in git_add_file: {e}")
-        print(f"Error executing git add {filename}: {e}", file=sys.stderr)
+        error(f"Error executing git add {filename}: {e}")
         return 1
 
 
 def git_fetch() -> int:
     """Run 'git fetch' command."""
     try:
-        print("Running: git fetch")
+        from codeup.console import dim, error
+
+        dim("Running: git fetch")
         exit_code, _, _ = _run_git_command(
             ["git", "fetch"],
             capture_output=False,
         )
         if exit_code != 0:
-            print(f"Error: git fetch returned {exit_code}")
+            error(f"git fetch returned {exit_code}")
         return exit_code
     except KeyboardInterrupt:
         logger.info("git_fetch interrupted by user")
         interrupt_main()
         raise
     except Exception as e:
+        from codeup.console import error
+
         logger.error(f"Error in git_fetch: {e}")
-        print(f"Error executing git fetch: {e}", file=sys.stderr)
+        error(f"Error executing git fetch: {e}")
         return 1
 
 
 def safe_rebase_try() -> bool:
     """Attempt a safe rebase using proper git commands. Returns True if successful or no rebase needed."""
     try:
+        from codeup.console import error, info, success
+
         current_branch = get_current_branch()
         upstream_branch = get_upstream_branch()
         main_branch = get_main_branch()
@@ -677,7 +697,7 @@ def safe_rebase_try() -> bool:
 
         # Check if rebase is needed
         if not check_rebase_needed(target_branch):
-            print(f"Branch is already up to date with origin/{target_branch}")
+            success(f"Branch is already up to date with origin/{target_branch}")
             return True
 
         # Attempt the rebase directly - this will handle conflicts properly
@@ -687,21 +707,21 @@ def safe_rebase_try() -> bool:
             else f"origin/{target_branch}"
         )
         print(f"Attempting rebase onto {remote_ref}...")
-        success, had_conflicts = attempt_rebase(target_branch)
+        rebase_success, had_conflicts = attempt_rebase(target_branch)
 
-        if success:
-            print(f"Successfully rebased onto {remote_ref}")
+        if rebase_success:
+            success(f"Successfully rebased onto {remote_ref}")
             return True
         elif had_conflicts:
-            print(f"Cannot automatically rebase: conflicts detected with {remote_ref}")
-            print(
+            error(f"Cannot automatically rebase: conflicts detected with {remote_ref}")
+            error(
                 "Remote repository has conflicting changes that must be manually resolved."
             )
-            print(f"Please run: git rebase {remote_ref}")
-            print("Then resolve any conflicts manually.")
+            info(f"Please run: git rebase {remote_ref}")
+            info("Then resolve any conflicts manually.")
             return False
         else:
-            print("Rebase failed for other reasons")
+            error("Rebase failed for other reasons")
             return False
 
     except KeyboardInterrupt:
@@ -709,23 +729,27 @@ def safe_rebase_try() -> bool:
         interrupt_main()
         raise
     except Exception as e:
+        from codeup.console import error
+
         logger.error(f"Error in safe_rebase_try: {e}")
-        print(f"Error during safe rebase attempt: {e}")
+        error(f"Error during safe rebase attempt: {e}")
         return False
 
 
 def safe_push() -> bool:
     """Attempt to push safely. Assumes rebase has already been handled if needed."""
     try:
-        # Try a push - rebase should have been handled earlier in the workflow
-        print("Attempting to push to remote...")
-        success, stderr = git_push()
+        from codeup.console import error, info, success
 
-        if success:
-            print("Successfully pushed to remote")
+        # Try a push - rebase should have been handled earlier in the workflow
+        info("Attempting to push to remote...")
+        push_success, stderr = git_push()
+
+        if push_success:
+            success("Successfully pushed to remote")
             return True
         else:
-            print(f"Push failed: {stderr}")
+            error(f"Push failed: {stderr}")
             return False
 
     except KeyboardInterrupt:
@@ -733,8 +757,10 @@ def safe_push() -> bool:
         interrupt_main()
         raise
     except Exception as e:
+        from codeup.console import error
+
         logger.error(f"Push error: {e}")
-        print(f"Push error: {e}")
+        error(f"Push error: {e}")
         return False
 
 

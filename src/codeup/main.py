@@ -22,7 +22,7 @@ from running_process.output_formatter import NullOutputFormatter
 
 from codeup.aicommit import ai_commit_or_prompt_for_commit_message
 from codeup.args import Args
-from codeup.console import error, git_status_summary, info, warning
+from codeup.console import dim, error, git_status_summary, info, success, warning
 from codeup.git_utils import (
     check_rebase_needed,
     enhanced_attempt_rebase,
@@ -224,7 +224,7 @@ def _main_worker() -> int:
                     cmd_parts = shlex.split(cmd)
                     logger.debug(f"Running lint with command parts: {cmd_parts}")
 
-                    print(f"Running: {cmd}")
+                    dim(f"Running: {cmd}")
                     # Run with streaming AND capture for dependency detection
                     rtn, stdout, stderr = _run_command_streaming(
                         cmd_parts,
@@ -240,18 +240,18 @@ def _main_worker() -> int:
                         uv_resolved_dependencies = False
 
                     if rtn != 0:
-                        print("Error: Linting failed.")
+                        error("Linting failed.")
                         # Display captured output if linting failed
                         if stderr.strip():
-                            print("STDERR:", file=sys.stderr)
+                            error("STDERR:")
                             print(stderr, file=sys.stderr)
                         if stdout.strip():
-                            print("STDOUT:")
+                            info("STDOUT:")
                             print(stdout)
                         if uv_resolved_dependencies:
                             return 1
                         # In dry-run mode, automatically try dependency refresh without prompting
-                        print(
+                        info(
                             "Dry-run mode: automatically running 'uv pip install -e . --refresh'"
                         )
                         for _ in range(3):
@@ -261,7 +261,7 @@ def _main_worker() -> int:
                             if refresh_rtn == 0:
                                 break
                         else:
-                            print("Error: uv pip install -e . --refresh failed.")
+                            error("uv pip install -e . --refresh failed.")
                             return 1
                 except KeyboardInterrupt:
                     logger.info("Dry-run linting interrupted by user")
@@ -271,7 +271,7 @@ def _main_worker() -> int:
                     raise
                 except Exception as e:
                     logger.error(f"Error during dry-run linting: {e}")
-                    print(f"Linting error: {e}", file=sys.stderr)
+                    error(f"Linting error: {e}")
                     return 1
 
             # Run testing if should run and available
@@ -281,7 +281,7 @@ def _main_worker() -> int:
                 test_cmd = "./test" + (" --verbose" if verbose else "")
                 test_cmd = _to_exec_str(test_cmd, bash=True)
 
-                print(f"Running: {test_cmd}")
+                dim(f"Running: {test_cmd}")
                 try:
                     import shlex
 
@@ -298,7 +298,7 @@ def _main_worker() -> int:
                         output_formatter=TimestampOutputFormatter(),
                     )
                     if rtn != 0:
-                        print("Error: Tests failed.")
+                        error("Tests failed.")
                         return 1
                 except KeyboardInterrupt:
                     logger.info("Dry-run testing interrupted by user")
@@ -308,22 +308,22 @@ def _main_worker() -> int:
                     raise
                 except Exception as e:
                     logger.error(f"Error during dry-run testing: {e}")
-                    print(f"Testing error: {e}", file=sys.stderr)
+                    error(f"Testing error: {e}")
                     return 1
 
-            print("Dry-run completed successfully")
+            success("Dry-run completed successfully")
             return 0
 
         except KeyboardInterrupt:
             logger.info("Dry-run interrupted by user")
-            print("Aborting")
+            warning("Aborting")
             from codeup.git_utils import interrupt_main
 
             interrupt_main()
             raise
         except Exception as e:
             logger.error(f"Unexpected error in dry-run mode: {e}")
-            print(f"Unexpected error: {e}")
+            error(f"Unexpected error: {e}")
             return 1
 
     # Handle --just-ai-commit flag
@@ -337,14 +337,14 @@ def _main_worker() -> int:
             return 0
         except KeyboardInterrupt:
             logger.info("just-ai-commit interrupted by user")
-            print("Aborting")
+            warning("Aborting")
             from codeup.git_utils import interrupt_main
 
             interrupt_main()
             raise
         except Exception as e:
             logger.error(f"Unexpected error in just-ai-commit: {e}")
-            print(f"Unexpected error: {e}")
+            error(f"Unexpected error: {e}")
             return 1
 
     try:
@@ -448,7 +448,7 @@ def _main_worker() -> int:
                 cmd_parts = shlex.split(cmd)
                 logger.debug(f"Running lint with command parts: {cmd_parts}")
 
-                print(f"Running: {cmd}")
+                dim(f"Running: {cmd}")
                 # Run with streaming AND capture for dependency detection
                 rtn, stdout, stderr = _run_command_streaming(
                     cmd_parts,
@@ -464,18 +464,18 @@ def _main_worker() -> int:
                     uv_resolved_dependencies = False
 
                 if rtn != 0:
-                    print("Error: Linting failed.")
+                    error("Linting failed.")
                     # Display captured output if linting failed
                     if stderr.strip():
-                        print("STDERR:", file=sys.stderr)
+                        error("STDERR:")
                         print(stderr, file=sys.stderr)
                     if stdout.strip():
-                        print("STDOUT:")
+                        info("STDOUT:")
                         print(stdout)
                     if uv_resolved_dependencies:
                         sys.exit(1)
                     if args.no_interactive:
-                        print(
+                        info(
                             "Non-interactive mode: automatically running 'uv pip install -e . --refresh'"
                         )
                         answer_yes = True
@@ -485,7 +485,7 @@ def _main_worker() -> int:
                             "y",
                         )
                         if not answer_yes:
-                            print("Aborting.")
+                            warning("Aborting.")
                             sys.exit(1)
                     for _ in range(3):
                         refresh_rtn = _exec(
@@ -494,7 +494,7 @@ def _main_worker() -> int:
                         if refresh_rtn == 0:
                             break
                     else:
-                        print("Error: uv pip install -e . --refresh failed.")
+                        error("uv pip install -e . --refresh failed.")
                         sys.exit(1)
             except KeyboardInterrupt:
                 logger.info("Linting interrupted by user")
@@ -504,7 +504,7 @@ def _main_worker() -> int:
                 raise
             except Exception as e:
                 logger.error(f"Error during linting: {e}")
-                print(f"Linting error: {e}", file=sys.stderr)
+                error(f"Linting error: {e}")
                 sys.exit(1)
         if not args.no_test and os.path.exists("./test"):
             print(TESTING_BANNER, end="")
@@ -512,7 +512,7 @@ def _main_worker() -> int:
             test_cmd = "./test" + (" --verbose" if verbose else "")
             test_cmd = _to_exec_str(test_cmd, bash=True)
 
-            print(f"Running: {test_cmd}")
+            dim(f"Running: {test_cmd}")
             try:
                 import shlex
 
@@ -529,7 +529,7 @@ def _main_worker() -> int:
                     output_formatter=TimestampOutputFormatter(),
                 )
                 if rtn != 0:
-                    print("Error: Tests failed.")
+                    error("Tests failed.")
                     sys.exit(1)
             except KeyboardInterrupt:
                 logger.info("Testing interrupted by user")
@@ -539,7 +539,7 @@ def _main_worker() -> int:
                 raise
             except Exception as e:
                 logger.error(f"Error during testing: {e}")
-                print(f"Testing error: {e}", file=sys.stderr)
+                error(f"Testing error: {e}")
                 sys.exit(1)
 
         # Handle git add and commit based on whether we have changes
@@ -558,15 +558,15 @@ def _main_worker() -> int:
                     args.no_autoaccept, args.message, args.no_interactive
                 )
             else:
-                print(
+                info(
                     "No modified tracked files to commit - only untracked files were added."
                 )
         else:
-            print("Skipping git add and commit - no new changes to commit.")
+            info("Skipping git add and commit - no new changes to commit.")
 
         if not args.no_push:
             # Fetch latest changes from remote
-            print("Fetching latest changes from remote...")
+            info("Fetching latest changes from remote...")
             git_fetch()
 
             # Check if rebase is needed and handle it
@@ -579,13 +579,13 @@ def _main_worker() -> int:
                 if upstream_branch:
                     # Use the upstream tracking branch if it exists
                     target_branch = upstream_branch
-                    print(f"Current branch: {current_branch}")
-                    print(f"Upstream branch: {upstream_branch}")
+                    info(f"Current branch: {current_branch}")
+                    info(f"Upstream branch: {upstream_branch}")
                 else:
                     # Fallback to main branch behavior
                     target_branch = main_branch
-                    print(f"Current branch: {current_branch}")
-                    print(f"Main branch: {main_branch} (no upstream tracking)")
+                    info(f"Current branch: {current_branch}")
+                    info(f"Main branch: {main_branch} (no upstream tracking)")
 
                 # Skip rebase if we're on the main branch and no upstream is set
                 should_skip_rebase = (
@@ -594,7 +594,7 @@ def _main_worker() -> int:
 
                 if not should_skip_rebase:
                     rebase_needed = check_rebase_needed(target_branch)
-                    print(f"Rebase needed: {rebase_needed}")
+                    info(f"Rebase needed: {rebase_needed}")
 
                     if rebase_needed:
                         remote_ref = (
@@ -602,66 +602,66 @@ def _main_worker() -> int:
                             if target_branch.startswith("origin/")
                             else f"origin/{target_branch}"
                         )
-                        print(
+                        warning(
                             f"Current branch '{current_branch}' is behind {remote_ref}"
                         )
 
                         if args.no_interactive:
-                            print(
+                            info(
                                 f"Non-interactive mode: attempting enhanced safe rebase onto {remote_ref}"
                             )
                             result = enhanced_attempt_rebase(target_branch)
 
                             if result.success:
-                                print(f"Successfully rebased onto {remote_ref}")
+                                success(f"Successfully rebased onto {remote_ref}")
                             elif result.had_conflicts:
-                                print(
-                                    "Error: Rebase failed due to conflicts that need manual resolution"
+                                error(
+                                    "Rebase failed due to conflicts that need manual resolution"
                                 )
-                                print("Remote repository has conflicting changes.")
-                                print("\nRecovery commands:")
+                                error("Remote repository has conflicting changes.")
+                                info("\nRecovery commands:")
                                 for cmd in result.recovery_commands:
-                                    print(f"  {cmd}")
+                                    info(f"  {cmd}")
                                 return 1
                             else:
-                                print(f"Error: {result.error_message}")
+                                error(f"{result.error_message}")
                                 if result.recovery_commands:
-                                    print("\nRecovery commands:")
+                                    info("\nRecovery commands:")
                                     for cmd in result.recovery_commands:
-                                        print(f"  {cmd}")
+                                        info(f"  {cmd}")
                                 return 1
                         else:
-                            print(
+                            info(
                                 f"Performing enhanced safe rebase onto {remote_ref}..."
                             )
 
                             # Perform the enhanced rebase
                             result = enhanced_attempt_rebase(target_branch)
                             if result.success:
-                                print(f"Successfully rebased onto {remote_ref}")
+                                success(f"Successfully rebased onto {remote_ref}")
                             elif result.had_conflicts:
-                                print(
+                                error(
                                     "Rebase failed due to conflicts that need manual resolution."
                                 )
-                                print(
+                                warning(
                                     "The repository has been restored to its original state."
                                 )
-                                print("\nRecovery commands:")
+                                info("\nRecovery commands:")
                                 for cmd in result.recovery_commands:
-                                    print(f"  {cmd}")
+                                    info(f"  {cmd}")
                                 return 1
                             else:
-                                print(f"Rebase failed: {result.error_message}")
+                                error(f"Rebase failed: {result.error_message}")
                                 if result.recovery_commands:
-                                    print("\nRecovery commands:")
+                                    info("\nRecovery commands:")
                                     for cmd in result.recovery_commands:
-                                        print(f"  {cmd}")
+                                        info(f"  {cmd}")
                                 return 1
 
             # Now attempt the push
             if not safe_push():
                 # If push still fails, check if we need to try the enhanced rebase approach
-                print("Push failed. Checking if enhanced rebase is needed...")
+                warning("Push failed. Checking if enhanced rebase is needed...")
 
                 # Refresh the rebase status check after potential changes
                 current_branch = get_current_branch()
@@ -680,29 +680,29 @@ def _main_worker() -> int:
                         if target_branch.startswith("origin/")
                         else f"origin/{target_branch}"
                     )
-                    print(
+                    info(
                         f"Repository is behind remote - attempting enhanced rebase onto {remote_ref}..."
                     )
                     result = enhanced_attempt_rebase(target_branch)
 
                     if result.success:
-                        print("Enhanced rebase successful, attempting push again...")
+                        info("Enhanced rebase successful, attempting push again...")
                         if safe_push():
-                            print("Successfully pushed after enhanced rebase")
+                            success("Successfully pushed after enhanced rebase")
                         else:
-                            print(
+                            error(
                                 "Push failed even after enhanced rebase. Manual intervention required."
                             )
                             return 1
                     else:
-                        print(f"Enhanced rebase failed: {result.error_message}")
+                        error(f"Enhanced rebase failed: {result.error_message}")
                         if result.recovery_commands:
-                            print("\nRecovery commands:")
+                            info("\nRecovery commands:")
                             for cmd in result.recovery_commands:
-                                print(f"  {cmd}")
+                                info(f"  {cmd}")
                         return 1
                 else:
-                    print(
+                    error(
                         "Push failed for non-rebase reasons. Manual intervention required."
                     )
                     return 1
@@ -710,14 +710,14 @@ def _main_worker() -> int:
             _publish()
     except KeyboardInterrupt:
         logger.info("codeup main function interrupted by user")
-        print("Aborting")
+        warning("Aborting")
         from codeup.git_utils import interrupt_main
 
         interrupt_main()
         raise
     except Exception as e:
         logger.error(f"Unexpected error in codeup main: {e}")
-        print(f"Unexpected error: {e}")
+        error(f"Unexpected error: {e}")
         return 1
     return 0
 
