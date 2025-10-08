@@ -736,6 +736,27 @@ def safe_rebase_try() -> bool:
         return False
 
 
+def get_last_commit_message() -> str:
+    """Get the most recent commit message."""
+    try:
+        exit_code, stdout, stderr = _run_git_command(
+            ["git", "log", "-1", "--pretty=%B"],
+            quiet=True,
+        )
+        if exit_code == 0:
+            return stdout.strip()
+        else:
+            logger.warning(f"Failed to get last commit message: {stderr}")
+            return ""
+    except KeyboardInterrupt:
+        logger.info("get_last_commit_message interrupted by user")
+        interrupt_main()
+        raise
+    except Exception as e:
+        logger.error(f"Error getting last commit message: {e}")
+        return ""
+
+
 def safe_push() -> bool:
     """Attempt to push safely. Assumes rebase has already been handled if needed."""
     try:
@@ -746,7 +767,17 @@ def safe_push() -> bool:
         push_success, stderr = git_push()
 
         if push_success:
-            success("Successfully pushed to remote")
+            # Get the last commit message to display
+            commit_msg = get_last_commit_message()
+            if commit_msg:
+                # Get first line only (in case of multi-line commits)
+                first_line = commit_msg.split("\n")[0]
+                # Truncate if too long
+                if len(first_line) > 60:
+                    first_line = first_line[:57] + "..."
+                success(f"Successfully pushed to remote with commit: {first_line}")
+            else:
+                success("Successfully pushed to remote")
             return True
         else:
             error(f"Push failed: {stderr}")
