@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "codeup"
-version = "1.0.11"
+version = "1.0.12"
 description = "Intelligent git workflow automation tool with AI-powered commit messages"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -33,7 +33,7 @@ dependencies = [
     "appdirs>=1.4.4",
     "keyring>=24.0.0",
     "semi_secret>=1.0.0",
-    "running-process>=1.0.3",
+    "running-process>=1.0.4",
 ]
 
 [project.optional-dependencies]
