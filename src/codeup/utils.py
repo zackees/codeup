@@ -284,19 +284,34 @@ def _exec(cmd: str, bash: bool, die=True) -> int:
         )
 
         # Stream output in real-time
-        for line in rp.line_iter(timeout=300.0):
+        for line in rp.line_iter(
+            timeout=600.0
+        ):  # 10 minute timeout for long operations
             print(line, flush=True)
 
         rp.wait()
         rtn = rp.returncode or 0
     except KeyboardInterrupt:
         logger.info("_exec interrupted by user")
+        rp.kill()
         from codeup.git_utils import interrupt_main
 
         interrupt_main()
         raise
+    except TimeoutError as e:
+        import traceback
+
+        logger.error(f"Timeout waiting for command output: {e}")
+        logger.error(f"Command that timed out: {original_cmd}")
+        logger.error(f"Transformed command: {cmd}")
+        logger.error("Stack trace of timeout location:")
+        logger.error(traceback.format_exc())
+        rp.kill()
+        print(f"Command timed out: {e}", file=sys.stderr)
+        rtn = 1
     except Exception as e:
         logger.error(f"Error in _exec: {e}")
+        rp.kill()  # Kill the process on timeout or other exceptions
         print(f"Error executing command: {e}", file=sys.stderr)
         rtn = 1
 

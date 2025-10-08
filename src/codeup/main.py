@@ -115,7 +115,9 @@ def _run_command_streaming(
     )
 
     try:
-        for line in rp.line_iter(timeout=300.0):
+        for line in rp.line_iter(
+            timeout=600.0
+        ):  # 10 minute timeout for long-running builds/tests
             if capture_output:
                 stdout_lines.append(line)
             if not quiet:
@@ -130,11 +132,19 @@ def _run_command_streaming(
 
         interrupt_main()
         raise
+    except TimeoutError as e:
+        import traceback
+
+        logger.error(f"Timeout waiting for process output: {e}")
+        logger.error(f"Command that timed out: {cmd}")
+        logger.error("Stack trace of timeout location:")
+        logger.error(traceback.format_exc())
+        rp.kill()
     except Exception as e:
         logger.warning(
             f"Exception during line iteration (streaming may be affected): {e}"
         )
-        pass
+        rp.kill()  # Kill the process on timeout or other exceptions
 
     rp.wait()
     stdout_text = "\n".join(stdout_lines) if capture_output else ""
