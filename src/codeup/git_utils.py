@@ -51,11 +51,10 @@ def safe_git_commit(message: str) -> int:
 def get_git_status() -> str:
     """Get git status output."""
     try:
-        print("Running: git status")
         exit_code, stdout, stderr = run_command_with_streaming_and_capture(
             ["git", "status"],
-            quiet=False,
-            check=True,  # Enable streaming to see what's happening
+            quiet=True,
+            check=True,
         )
         return stdout
     except KeyboardInterrupt:
@@ -108,13 +107,17 @@ def get_git_diff() -> str:
 def get_staged_files() -> list[str]:
     """Get list of staged file names."""
     try:
-        print("Running: git diff --cached --name-only")
         exit_code, stdout, stderr = run_command_with_streaming_and_capture(
             ["git", "diff", "--cached", "--name-only"],
-            quiet=False,  # Enable streaming to see what's happening
+            quiet=True,
             check=True,
         )
-        return [f.strip() for f in stdout.splitlines() if f.strip()]
+        # Filter out git warnings (lines starting with "warning:")
+        return [
+            f.strip()
+            for f in stdout.splitlines()
+            if f.strip() and not f.strip().startswith("warning:")
+        ]
     except KeyboardInterrupt:
         logger.info("get_staged_files interrupted by user")
         interrupt_main()
@@ -127,13 +130,17 @@ def get_staged_files() -> list[str]:
 def get_unstaged_files() -> list[str]:
     """Get list of unstaged file names."""
     try:
-        print("Running: git diff --name-only")
         exit_code, stdout, stderr = run_command_with_streaming_and_capture(
             ["git", "diff", "--name-only"],
-            quiet=False,  # Enable streaming to see what's happening
+            quiet=True,
             check=True,
         )
-        return [f.strip() for f in stdout.splitlines() if f.strip()]
+        # Filter out git warnings (lines starting with "warning:")
+        return [
+            f.strip()
+            for f in stdout.splitlines()
+            if f.strip() and not f.strip().startswith("warning:")
+        ]
     except KeyboardInterrupt:
         logger.info("get_unstaged_files interrupted by user")
         interrupt_main()
@@ -146,10 +153,9 @@ def get_unstaged_files() -> list[str]:
 def get_untracked_files() -> list[str]:
     """Get list of untracked files."""
     try:
-        print("Running: git ls-files --others --exclude-standard")
         exit_code, stdout, stderr = run_command_with_streaming_and_capture(
             ["git", "ls-files", "--others", "--exclude-standard"],
-            quiet=False,  # Enable streaming to see what's happening
+            quiet=True,
             check=True,
         )
 
@@ -169,7 +175,7 @@ def get_main_branch() -> str:
         # Try to get the default branch from remote
         exit_code, stdout, stderr = run_command_with_streaming_and_capture(
             ["git", "symbolic-ref", "refs/remotes/origin/HEAD"],
-            quiet=False,
+            quiet=True,
         )
         if exit_code == 0:
             return stdout.strip().split("/")[-1]
@@ -186,7 +192,7 @@ def get_main_branch() -> str:
         try:
             exit_code, stdout, stderr = run_command_with_streaming_and_capture(
                 ["git", "rev-parse", "--verify", f"origin/{branch}"],
-                quiet=False,
+                quiet=True,
             )
             if exit_code == 0:
                 return branch

@@ -19,18 +19,19 @@ import traceback
 
 from codeup.aicommit import ai_commit_or_prompt_for_commit_message
 from codeup.args import Args
+from codeup.console import error, git_status_summary, info, warning
 from codeup.git_utils import (
     check_rebase_needed,
     enhanced_attempt_rebase,
     get_current_branch,
-    get_git_status,
     get_main_branch,
+    get_staged_files,
+    get_unstaged_files,
     get_untracked_files,
     get_upstream_branch,
     git_add_all,
     git_add_file,
     git_fetch,
-    has_changes_to_commit,
     has_modified_tracked_files,
     has_unpushed_commits,
     safe_push,
@@ -274,78 +275,77 @@ def _main_worker() -> int:
             return 1
 
     try:
-        git_status_str = get_git_status()
-        print(git_status_str)
-
-        # Check if there are any changes to commit
-        has_changes = has_changes_to_commit()
+        # Gather git status information
+        staged_files = get_staged_files()
+        unstaged_files = get_unstaged_files()
+        untracked_files = get_untracked_files()
         has_unpushed = has_unpushed_commits()
 
+        # Get unpushed commit count for display
+        unpushed_count = 0
+        if has_unpushed:
+            try:
+                upstream_branch = get_upstream_branch()
+                if upstream_branch:
+                    exit_code, stdout, _ = run_command_with_streaming_and_capture(
+                        ["git", "rev-list", "--count", f"{upstream_branch}..HEAD"],
+                        quiet=True,
+                        raw_output=True,
+                    )
+                    if exit_code == 0:
+                        unpushed_count = int(stdout.strip())
+            except (KeyboardInterrupt, Exception):
+                pass
+
+        # Display clean, color-coded status summary
+        git_status_summary(
+            staged_files, unstaged_files, untracked_files, unpushed_count
+        )
+
+        # Check if there are any changes to commit
+        has_changes = bool(staged_files or unstaged_files or untracked_files)
+
         if not has_changes and not has_unpushed:
-            print("No changes to commit, working tree clean.")
             return 1
 
         # Special case: unpushed commits without unstaged/untracked changes
         if not has_changes and has_unpushed:
-            print("No unstaged changes, but there are unpushed commits.")
+            info("Proceeding with lint/test/push for unpushed commits")
             # Run linting and testing, then push
             # Skip the untracked files check and git add since there are no changes
             has_untracked = False
         else:
-            untracked_files = get_untracked_files()
             has_untracked = len(untracked_files) > 0
 
         if has_untracked:
-            print("There are untracked files.")
             # Check if running as subprocess (not in PTY) - if so, require all files to be staged
             if not sys.stdin.isatty():
-                print(
-                    "Error: Untracked files detected when running as subprocess.",
-                    file=sys.stderr,
-                )
-                print(
-                    "All files must be staged before running codeup as a subprocess.",
-                    file=sys.stderr,
-                )
-                print("\nUntracked files:", file=sys.stderr)
-                for untracked_file in untracked_files:
-                    formatted_name = format_filename_with_warning(untracked_file)
-                    print(f"  {formatted_name}", file=sys.stderr)
-                print(
-                    "\nPlease stage these files with 'git add' or run codeup interactively.",
-                    file=sys.stderr,
+                error("Untracked files detected when running as subprocess")
+                error("All files must be staged before running codeup as a subprocess")
+                error(
+                    "Please stage these files with 'git add' or run codeup interactively"
                 )
                 return 1
             if args.pre_test:
                 # In pre-test mode, error out if there are untracked files
                 # This prevents blocking when codeup is called as a subcommand
-                print(
-                    "Error: Untracked files detected in pre-test mode.", file=sys.stderr
-                )
-                print(
-                    "Pre-test mode requires all files to be tracked before running.",
-                    file=sys.stderr,
-                )
-                print("\nUntracked files:", file=sys.stderr)
-                for untracked_file in untracked_files:
-                    formatted_name = format_filename_with_warning(untracked_file)
-                    print(f"  {formatted_name}", file=sys.stderr)
-                print(
-                    "\nPlease add these files to git or run codeup without --pre-test flag.",
-                    file=sys.stderr,
+                error("Untracked files detected in pre-test mode")
+                error("Pre-test mode requires all files to be tracked before running")
+                error(
+                    "Please add these files to git or run codeup without --pre-test flag"
                 )
                 return 1
             elif args.no_interactive:
                 # In non-interactive mode, automatically add all untracked files
-                print("Non-interactive mode: automatically adding all untracked files.")
+                info("Non-interactive mode: automatically adding all untracked files")
                 for untracked_file in untracked_files:
                     formatted_name = format_filename_with_warning(untracked_file)
-                    print(f"  Adding {formatted_name}")
+                    info(f"  Adding {formatted_name}")
                     git_add_file(untracked_file)
             else:
                 answer_yes = get_answer_yes_or_no("Continue?", "y")
                 if not answer_yes:
-                    print("Aborting.")
+                    warning("Aborting")
                     return 1
                 for untracked_file in untracked_files:
                     formatted_name = format_filename_with_warning(untracked_file)
@@ -353,7 +353,7 @@ def _main_worker() -> int:
                     if answer_yes:
                         git_add_file(untracked_file)
                     else:
-                        print(f"  Skipping {formatted_name}")
+                        info(f"  Skipping {formatted_name}")
         if os.path.exists("./lint") and not args.no_lint:
             print(LINTING_BANNER, end="")
 
