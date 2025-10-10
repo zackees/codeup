@@ -51,6 +51,7 @@ from codeup.utils import (
     format_filename_with_warning,
     get_answer_yes_or_no,
     is_uv_project,
+    set_interrupted,
 )
 
 # Logger will be configured in main() based on --log flag
@@ -265,6 +266,7 @@ def _main_worker() -> int:
                             return 1
                 except KeyboardInterrupt:
                     logger.info("Dry-run linting interrupted by user")
+                    set_interrupted()
                     from codeup.git_utils import interrupt_main
 
                     interrupt_main()
@@ -302,6 +304,7 @@ def _main_worker() -> int:
                         return 1
                 except KeyboardInterrupt:
                     logger.info("Dry-run testing interrupted by user")
+                    set_interrupted()
                     from codeup.git_utils import interrupt_main
 
                     interrupt_main()
@@ -316,6 +319,7 @@ def _main_worker() -> int:
 
         except KeyboardInterrupt:
             logger.info("Dry-run interrupted by user")
+            set_interrupted()
             warning("Aborting")
             from codeup.git_utils import interrupt_main
 
@@ -337,6 +341,7 @@ def _main_worker() -> int:
             return 0
         except KeyboardInterrupt:
             logger.info("just-ai-commit interrupted by user")
+            set_interrupted()
             warning("Aborting")
             from codeup.git_utils import interrupt_main
 
@@ -498,6 +503,7 @@ def _main_worker() -> int:
                         sys.exit(1)
             except KeyboardInterrupt:
                 logger.info("Linting interrupted by user")
+                set_interrupted()
                 from codeup.git_utils import interrupt_main
 
                 interrupt_main()
@@ -533,6 +539,7 @@ def _main_worker() -> int:
                     sys.exit(1)
             except KeyboardInterrupt:
                 logger.info("Testing interrupted by user")
+                set_interrupted()
                 from codeup.git_utils import interrupt_main
 
                 interrupt_main()
@@ -710,6 +717,7 @@ def _main_worker() -> int:
             _publish()
     except KeyboardInterrupt:
         logger.info("codeup main function interrupted by user")
+        set_interrupted()
         warning("Aborting")
         from codeup.git_utils import interrupt_main
 
@@ -834,6 +842,7 @@ def main() -> int:
             result[0] = _main_worker()
         except KeyboardInterrupt:
             logger.info("Worker thread interrupted")
+            set_interrupted()  # Ensure flag is set
             result[0] = 1
         except Exception as e:
             logger.error(f"Worker thread failed: {e}")
@@ -858,8 +867,10 @@ def main() -> int:
         return result[0]
     except KeyboardInterrupt:
         logger.info("Main thread interrupted by user")
+        set_interrupted()  # Signal worker thread to stop
         print("Aborting", file=sys.stderr)
-        # Don't wait for worker - it's already interrupted, just exit
+        # Wait briefly for worker to notice interrupt and exit cleanly
+        worker_thread.join(timeout=0.5)
         return 1
 
 

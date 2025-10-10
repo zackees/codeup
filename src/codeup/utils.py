@@ -21,6 +21,20 @@ logger = logging.getLogger(__name__)
 RED = "\033[91m"
 RESET = "\033[0m"
 
+# Global interrupt flag - set when user presses Ctrl-C
+_interrupted = False
+
+
+def set_interrupted() -> None:
+    """Mark that the process has been interrupted by user."""
+    global _interrupted
+    _interrupted = True
+
+
+def is_interrupted() -> bool:
+    """Check if the process has been interrupted by user."""
+    return _interrupted
+
 
 def is_suspicious_file(filename: str) -> bool:
     """Check if a file has a suspicious extension that typically shouldn't be committed.
@@ -119,8 +133,17 @@ def input_with_timeout(prompt: str, timeout_seconds: int = 300) -> str:
         except KeyboardInterrupt:
             from codeup.git_utils import interrupt_main
 
+            set_interrupted()
             interrupt_main()
             raise
+        except EOFError:
+            # EOFError often indicates Ctrl-C on Windows or closed stdin
+            # Treat it as an interrupt
+            from codeup.git_utils import interrupt_main
+
+            set_interrupted()
+            interrupt_main()
+            raise KeyboardInterrupt("Input interrupted (EOFError)") from None
         except Exception as e:
             exception_holder.append(e)
 
@@ -347,6 +370,11 @@ def check_environment() -> Path:
 
 def get_answer_yes_or_no(question: str, default: bool | str = "y") -> bool:
     """Ask a yes/no question and return the answer."""
+    # Check if process has been interrupted
+    if is_interrupted():
+        logger.info("get_answer_yes_or_no: process already interrupted, raising")
+        raise KeyboardInterrupt("Process interrupted")
+
     # Check if stdin is available
     if not sys.stdin.isatty():
         # No interactive terminal, use default
@@ -386,6 +414,11 @@ def get_answer_yes_or_no(question: str, default: bool | str = "y") -> bool:
             interrupt_main()
             raise
         except (EOFError, InputTimeoutError) as e:
+            # Check if we're shutting down due to interrupt
+            if is_interrupted():
+                logger.info("Input failed during shutdown, raising KeyboardInterrupt")
+                raise KeyboardInterrupt("Process interrupted") from e
+
             # No stdin available or timeout, use default
             result = (
                 True
