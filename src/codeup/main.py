@@ -16,6 +16,7 @@ import sys
 import threading
 import time
 import traceback
+from dataclasses import dataclass
 
 from running_process import RunningProcess
 from running_process.output_formatter import NullOutputFormatter
@@ -57,6 +58,18 @@ from codeup.utils import (
 # Logger will be configured in main() based on --log flag
 logger = logging.getLogger(__name__)
 
+
+@dataclass
+class CommandContext:
+    """Context information for currently running command."""
+
+    phase: str  # "LINTING", "TESTING", "DRY_RUN_LINT", etc.
+    command_display: str  # Human-readable command
+    command_parts: list[str]  # Actual command parts
+    start_time: float
+    has_pty: bool  # sys.stdin.isatty()
+
+
 # Banner constants
 LINTING_BANNER = """
 #########################################
@@ -95,11 +108,26 @@ IS_UV_PROJECT = is_uv_project()
 # Global activity tracker for timeout handling
 _activity_tracker = None
 
+# Global command context for timeout diagnostics
+_current_command_context = None
+
 
 def _set_activity_tracker(tracker):
     """Set the global activity tracker."""
     global _activity_tracker
     _activity_tracker = tracker
+
+
+def _set_current_command_context(context):
+    """Set current command context for timeout diagnostics."""
+    global _current_command_context
+    _current_command_context = context
+
+
+def _clear_current_command_context():
+    """Clear current command context."""
+    global _current_command_context
+    _current_command_context = None
 
 
 def _run_command_streaming(
@@ -108,12 +136,24 @@ def _run_command_streaming(
     quiet: bool = False,
     capture_output: bool = True,
     output_formatter=None,
+    phase: str = "COMMAND",
 ) -> tuple[int, str, str]:
     """Run a command with RunningProcess and track activity for timeout."""
     stdout_lines = []
 
     if output_formatter is None:
         output_formatter = NullOutputFormatter()
+
+    # Track command context for timeout diagnostics
+    _set_current_command_context(
+        CommandContext(
+            phase=phase,
+            command_display=" ".join(cmd),
+            command_parts=cmd,
+            start_time=time.time(),
+            has_pty=sys.stdin.isatty(),
+        )
+    )
 
     rp = RunningProcess(
         command=cmd,
@@ -157,6 +197,10 @@ def _run_command_streaming(
 
     rp.wait()
     stdout_text = "\n".join(stdout_lines) if capture_output else ""
+
+    # Clear command context after execution
+    _clear_current_command_context()
+
     return rp.returncode or 0, stdout_text, ""
 
 
@@ -181,10 +225,12 @@ def _main_worker() -> int:
             return 1
 
     git_path = check_environment()
+    print(f"Git repository: {git_path}", flush=True)
     os.chdir(str(git_path))
 
     # Handle --dry-run flag
     if args.dry_run:
+        print("Starting dry-run mode...", flush=True)
         # Determine what to run based on positive flags
         should_run_lint = False
         should_run_test = False
@@ -193,20 +239,20 @@ def _main_worker() -> int:
             # Both positive flags specified - run both
             should_run_lint = True
             should_run_test = True
-            print("Dry-run mode: Running lint and test scripts only")
+            print("Dry-run mode: Running lint and test scripts only", flush=True)
         elif args.lint:
             # Only lint flag specified - run only lint
             should_run_lint = True
-            print("Dry-run mode: Running lint script only")
+            print("Dry-run mode: Running lint script only", flush=True)
         elif args.test:
             # Only test flag specified - run only test
             should_run_test = True
-            print("Dry-run mode: Running test script only")
+            print("Dry-run mode: Running test script only", flush=True)
         else:
             # No positive flags - default behavior (run both if not disabled)
             should_run_lint = not args.no_lint
             should_run_test = not args.no_test
-            print("Dry-run mode: Running lint and test scripts only")
+            print("Dry-run mode: Running lint and test scripts only", flush=True)
 
         try:
             # Run linting if should run and available
@@ -233,6 +279,7 @@ def _main_worker() -> int:
                         quiet=False,  # Stream output in real-time
                         capture_output=True,  # Also capture for dependency checking
                         output_formatter=TimestampOutputFormatter(),
+                        phase="DRY_RUN_LINT",
                     )
 
                     # Check captured output for dependency resolution issues
@@ -298,6 +345,7 @@ def _main_worker() -> int:
                         quiet=False,  # Stream output in real-time
                         capture_output=False,  # No need to capture test output
                         output_formatter=TimestampOutputFormatter(),
+                        phase="DRY_RUN_TEST",
                     )
                     if rtn != 0:
                         error("Tests failed.")
@@ -369,6 +417,7 @@ def _main_worker() -> int:
                     exit_code, stdout, _ = _run_command_streaming(
                         ["git", "rev-list", "--count", f"{upstream_branch}..HEAD"],
                         quiet=True,
+                        phase="GIT_STATUS",
                     )
                     if exit_code == 0:
                         unpushed_count = int(stdout.strip())
@@ -461,6 +510,7 @@ def _main_worker() -> int:
                     quiet=False,  # Stream output in real-time
                     capture_output=True,  # Also capture for dependency checking
                     output_formatter=TimestampOutputFormatter(),
+                    phase="LINTING",
                 )
 
                 # Check captured output for dependency resolution issues
@@ -533,6 +583,7 @@ def _main_worker() -> int:
                     quiet=False,  # Stream output in real-time
                     capture_output=False,  # No need to capture test output
                     output_formatter=TimestampOutputFormatter(),
+                    phase="TESTING",
                 )
                 if rtn != 0:
                     error("Tests failed.")
@@ -756,9 +807,50 @@ def _is_waiting_for_user_input() -> bool:
 
 
 def _dump_all_thread_stacks() -> None:
-    """Dump stack traces of all threads to help debug hanging issues."""
-    print("\n" + "=" * 80, file=sys.stderr)
-    print("TIMEOUT: Dumping stack traces of all threads", file=sys.stderr)
+    """Dump stack traces with prominent command context banner."""
+
+    # Display prominent banner at top with command context
+    print("\n" + "╔" + "═" * 77 + "╗", file=sys.stderr)
+    print("║" + " " * 23 + "TIMEOUT - PROCESS HUNG" + " " * 32 + "║", file=sys.stderr)
+    print("╠" + "═" * 77 + "╣", file=sys.stderr)
+
+    if _current_command_context:
+        ctx = _current_command_context
+        elapsed = time.time() - ctx.start_time
+        elapsed_min = int(elapsed // 60)
+        elapsed_sec = int(elapsed % 60)
+        elapsed_str = f"{elapsed_min} minutes {elapsed_sec} seconds"
+
+        # Truncate command display if too long
+        cmd_display = ctx.command_display
+        if len(cmd_display) > 60:
+            cmd_display = cmd_display[:57] + "..."
+
+        pty_status = (
+            "YES (can prompt user)" if ctx.has_pty else "NO (cannot prompt user)"
+        )
+
+        print(f"║ Phase:         {ctx.phase:<60}║", file=sys.stderr)
+        print(f"║ Command:       {cmd_display:<60}║", file=sys.stderr)
+        print(f"║ Running for:   {elapsed_str:<60}║", file=sys.stderr)
+        print(f"║ PTY available: {pty_status:<60}║", file=sys.stderr)
+    else:
+        print(
+            "║ No command context available (not running a command)" + " " * 22 + "║",
+            file=sys.stderr,
+        )
+
+    print("╠" + "═" * 77 + "╣", file=sys.stderr)
+    print(
+        "║ Likely cause: Subprocess hung or waiting for input" + " " * 26 + "║",
+        file=sys.stderr,
+    )
+    print("╚" + "═" * 77 + "╝", file=sys.stderr)
+    print(file=sys.stderr)
+
+    # Then show thread stacks
+    print("=" * 80, file=sys.stderr)
+    print("Thread Stack Traces:", file=sys.stderr)
     print("=" * 80, file=sys.stderr)
 
     for thread_id, frame in sys._current_frames().items():
@@ -794,12 +886,26 @@ def main() -> int:
     _set_activity_tracker(last_activity_time)
 
     def timeout_handler():
-        """Handle timeout by checking test output activity every 5 minutes."""
+        """Handle timeout by checking test output activity, warn at 4 min, timeout at 5 min."""
+        warned = False
         while True:
-            time.sleep(300)  # Check every 5 minutes = 300 seconds
+            time.sleep(60)  # Check every minute
 
             current_time = time.time()
             time_since_last_activity = current_time - last_activity_time[0]
+
+            # Reset warning flag if activity resumed
+            if time_since_last_activity < 240 and warned:
+                warned = False
+
+            # Warning at 4 minutes of no output
+            if time_since_last_activity >= 240 and not warned:
+                print(
+                    "\n⚠️  WARNING: No output for 4 minutes, will timeout in 1 minute...",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                warned = True
 
             # If no activity for 5 minutes, trigger thread dump and exit
             if time_since_last_activity >= 300:
