@@ -980,5 +980,18 @@ def main() -> int:
         return 1
 
 
+def lint_and_test_main() -> int:
+    """Entry point for lint-and-test command - runs lint and test without git operations.
+
+    This is equivalent to 'codeup --dry-run' but avoids mentioning 'codeup' in output
+    to prevent confusion when used by LLM agents.
+    """
+    # Manually set dry_run mode without parsing args that might contain the word 'codeup'
+    import sys
+
+    sys.argv = [sys.argv[0], "--dry-run"]
+    return main()
+
+
 if __name__ == "__main__":
     sys.exit(main())
