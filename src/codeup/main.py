@@ -487,6 +487,12 @@ def _main_worker() -> int:
                         git_add_file(untracked_file)
                     else:
                         info(f"  Skipping {formatted_name}")
+
+        # If pre-test mode and we've gotten this far, all files are tracked - exit successfully
+        if args.pre_test:
+            success("Pre-test check passed: all files are tracked")
+            return 0
+
         if os.path.exists("./lint") and not args.no_lint:
             print(LINTING_BANNER, end="")
 
