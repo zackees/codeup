@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "codeup"
-version = "1.0.18"
+version = "1.0.19"
 description = "Intelligent git workflow automation tool with AI-powered commit messages"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -57,7 +57,7 @@ Documentation = "https://github.com/zackees/codeup#readme"
 
 [project.scripts]
 codeup = "codeup.main:main"
-lint-test = "codeup.main:lint_and_test_main"
+lint-test = "codeup.main:lint_test_main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

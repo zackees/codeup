@@ -3,8 +3,6 @@ import sys
 import unittest
 from pathlib import Path
 
-import pytest
-
 
 class ArgumentParsingTester(unittest.TestCase):
     """Test command line argument parsing functionality."""
@@ -17,7 +15,6 @@ class ArgumentParsingTester(unittest.TestCase):
         """Clean up test environment."""
         pass
 
-    @pytest.mark.unit
     def test_basic_argument_parsing(self):
         """Test basic argument parsing functionality."""
         src_path = str(Path(self.original_cwd) / "src")
@@ -61,7 +58,6 @@ class ArgumentParsingTester(unittest.TestCase):
             if src_path in sys.path:
                 sys.path.remove(src_path)
 
-    @pytest.mark.unit
     def test_flag_arguments(self):
         """Test flag argument parsing."""
         src_path = str(Path(self.original_cwd) / "src")
@@ -113,7 +109,6 @@ class ArgumentParsingTester(unittest.TestCase):
             if src_path in sys.path:
                 sys.path.remove(src_path)
 
-    @pytest.mark.unit
     def test_message_argument(self):
         """Test message argument parsing."""
         src_path = str(Path(self.original_cwd) / "src")
@@ -149,7 +144,6 @@ class ArgumentParsingTester(unittest.TestCase):
             if src_path in sys.path:
                 sys.path.remove(src_path)
 
-    @pytest.mark.unit
     def test_repo_argument(self):
         """Test repository path argument parsing."""
         src_path = str(Path(self.original_cwd) / "src")
@@ -176,7 +170,6 @@ class ArgumentParsingTester(unittest.TestCase):
             if src_path in sys.path:
                 sys.path.remove(src_path)
 
-    @pytest.mark.unit
     def test_short_flag_aliases(self):
         """Test short flag aliases."""
         src_path = str(Path(self.original_cwd) / "src")
@@ -205,7 +198,6 @@ class ArgumentParsingTester(unittest.TestCase):
             if src_path in sys.path:
                 sys.path.remove(src_path)
 
-    @pytest.mark.unit
     def test_api_key_arguments(self):
         """Test API key setting arguments."""
         src_path = str(Path(self.original_cwd) / "src")
@@ -244,7 +236,6 @@ class ArgumentParsingTester(unittest.TestCase):
             if src_path in sys.path:
                 sys.path.remove(src_path)
 
-    @pytest.mark.unit
     def test_args_dataclass_validation(self):
         """Test that Args dataclass validates input types."""
         src_path = str(Path(self.original_cwd) / "src")
