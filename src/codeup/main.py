@@ -989,14 +989,43 @@ def main() -> int:
 def lint_test_main() -> int:
     """Entry point for lint-test command - runs lint and test without git operations.
 
-    This is equivalent to 'codeup --dry-run' but avoids mentioning 'codeup' in output
-    to prevent confusion when used by LLM agents.
+    This is equivalent to 'codeup --dry-run' but provides its own argument parser
+    with a simpler interface focused on linting and testing. Output is always streamed.
     """
-    # Manually set dry_run mode without parsing args that might contain the word 'codeup'
+    from codeup.args import parse_lint_test_args
+
+    # Parse lint-test specific arguments (will handle --help automatically)
+    args = parse_lint_test_args()
+
+    # Configure logging based on --log flag
+    configure_logging(args.log)
+
+    # Now run the main workflow with these args
+    # We need to inject the args into the system so _main_worker can use them
     import sys
 
-    sys.argv = [sys.argv[0], "--dry-run"]
-    return main()
+    # Save original argv
+    original_argv = sys.argv.copy()
+
+    try:
+        # Build argv to match what the args represent
+        new_argv = [sys.argv[0], "--dry-run"]
+        if args.no_test:
+            new_argv.append("--no-test")
+        if args.no_lint:
+            new_argv.append("--no-lint")
+        if args.lint:
+            new_argv.append("--lint")
+        if args.test:
+            new_argv.append("--test")
+        if args.log:
+            new_argv.append("--log")
+
+        sys.argv = new_argv
+        return main()
+    finally:
+        # Restore original argv
+        sys.argv = original_argv
 
 
 if __name__ == "__main__":

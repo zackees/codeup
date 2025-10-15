@@ -185,6 +185,89 @@ class ApiTester(unittest.TestCase):
         except ImportError as e:
             self.skipTest(f"Could not import API module: {e}")
 
+    def test_lint_test_in_empty_git_dir_without_scripts(self):
+        """Test lint-test returns 0 in empty git dir without lint/test scripts."""
+        try:
+            import shutil
+            import stat
+            import subprocess
+
+            from codeup.api import lint_test
+
+            # Create a temporary directory
+            temp_dir = tempfile.mkdtemp()
+
+            try:
+                os.chdir(temp_dir)
+
+                # Initialize as a git repository
+                subprocess.run(
+                    ["git", "init"],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+                subprocess.run(
+                    ["git", "config", "user.email", "test@example.com"],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+                subprocess.run(
+                    ["git", "config", "user.name", "Test User"],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+
+                # Run lint-test in this empty directory (no ./lint or ./test scripts)
+                result = lint_test(capture_output=True)
+
+                # Should succeed with exit code 0 since there are no scripts to run
+                self.assertTrue(
+                    result.success,
+                    f"lint_test should succeed in empty git dir. Error: {result.error_message}",
+                )
+                self.assertEqual(
+                    result.exit_code,
+                    0,
+                    f"Exit code should be 0, got {result.exit_code}",
+                )
+
+                # Both should be None since the scripts don't exist
+                self.assertIsNone(
+                    result.lint_passed,
+                    "lint_passed should be None when ./lint doesn't exist",
+                )
+                self.assertIsNone(
+                    result.test_passed,
+                    "test_passed should be None when ./test doesn't exist",
+                )
+
+                # Verify output contains dry-run completion message
+                combined_output = result.stdout + result.stderr
+                self.assertIn(
+                    "Dry-run completed successfully",
+                    combined_output,
+                    "Output should contain dry-run completion message",
+                )
+
+            finally:
+                # Change back before cleanup
+                os.chdir(self.original_cwd)
+
+                # Windows-compatible cleanup
+                def handle_remove_readonly(func, path, exc):
+                    """Handle read-only files on Windows."""
+                    if os.path.exists(path):
+                        os.chmod(path, stat.S_IWRITE)
+                        func(path)
+
+                shutil.rmtree(temp_dir, onerror=handle_remove_readonly)
+
+        except ImportError as e:
+            self.skipTest(f"Could not import API module: {e}")
+
 
 if __name__ == "__main__":
     unittest.main()

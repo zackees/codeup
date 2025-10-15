@@ -183,3 +183,61 @@ def _parse_args() -> Args:
         pre_test=tmp.pre_test,
     )
     return out
+
+
+def parse_lint_test_args() -> Args:
+    """Parse command-line arguments for lint-test command.
+
+    The lint-test command is a simpler interface that runs linting and testing
+    without git operations. Output is always streamed via running-process.
+    """
+    parser = argparse.ArgumentParser(
+        prog="lint-test",
+        description="Run linting and testing scripts without git operations (output always streamed)",
+    )
+    parser.add_argument(
+        "--no-test", "-nt", help="Do not run tests", action="store_true"
+    )
+    parser.add_argument(
+        "--no-lint", "-nl", help="Do not run linter", action="store_true"
+    )
+    parser.add_argument(
+        "--lint",
+        help="Run only the lint script",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--test",
+        help="Run only the test script",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--log",
+        help="Enable logging to codeup.log file",
+        action="store_true",
+    )
+
+    tmp = parser.parse_args()
+
+    # Create Args object with dry_run enabled and other flags set appropriately
+    out: Args = Args(
+        repo=None,
+        no_push=True,  # Always true for lint-test
+        verbose=False,  # Always false - streaming is handled by running-process
+        no_test=tmp.no_test,
+        no_lint=tmp.no_lint,
+        publish=False,
+        no_autoaccept=True,
+        message=None,
+        no_rebase=True,
+        no_interactive=True,  # Always non-interactive for lint-test
+        log=tmp.log,
+        just_ai_commit=False,
+        set_key_anthropic=None,
+        set_key_openai=None,
+        dry_run=True,  # Always true for lint-test
+        lint=tmp.lint,
+        test=tmp.test,
+        pre_test=False,
+    )
+    return out
