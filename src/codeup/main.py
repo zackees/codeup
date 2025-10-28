@@ -991,8 +991,36 @@ def lint_test_main() -> int:
 
     This is equivalent to 'codeup --dry-run' but provides its own argument parser
     with a simpler interface focused on linting and testing. Output is always streamed.
+
+    IMPORTANT: This function ensures safe UTF-8 encoding for output, even when called
+    as a subprocess from Windows cmd.exe (which uses CP1252/charmap encoding).
     """
+    import codecs
+    import sys
+
     from codeup.args import parse_lint_test_args
+
+    # Force UTF-8 encoding for subprocess operations
+    # This ensures lint/test scripts output UTF-8
+    os.environ["PYTHONIOENCODING"] = "utf-8"
+    os.environ["PYTHONUTF8"] = "1"
+    os.environ["PYTHONUNBUFFERED"] = "1"
+
+    # Reconfigure stdout/stderr with safe error handling for parent process
+    # Use 'replace' error handling so characters that can't be encoded to the
+    # parent's encoding (e.g., CP1252 in cmd.exe) are replaced with '?' instead
+    # of raising UnicodeEncodeError
+    if sys.platform == "win32":
+        # Get the parent process encoding (usually CP1252 on Windows cmd.exe)
+        parent_encoding = sys.stdout.encoding or "cp1252"
+
+        # Wrap stdout/stderr to handle encoding errors gracefully
+        # We read UTF-8 internally but write to parent with safe fallback
+        if sys.stdout.encoding != "utf-8":
+            # Create an encoder that replaces unencodable characters
+            sys.stdout = codecs.getwriter(parent_encoding)(sys.stdout.buffer, "replace")
+        if sys.stderr.encoding != "utf-8":
+            sys.stderr = codecs.getwriter(parent_encoding)(sys.stderr.buffer, "replace")
 
     # Parse lint-test specific arguments (will handle --help automatically)
     args = parse_lint_test_args()
@@ -1002,7 +1030,6 @@ def lint_test_main() -> int:
 
     # Now run the main workflow with these args
     # We need to inject the args into the system so _main_worker can use them
-    import sys
 
     # Save original argv
     original_argv = sys.argv.copy()

@@ -1,14 +1,19 @@
 #!/bin/bash
 set -e
 
+# Force UTF-8 encoding for all subprocess output
+# This prevents encoding errors when output is captured by subprocess callers
+export PYTHONIOENCODING=utf-8
+export PYTHONUTF8=1
+
 echo "Running ruff check and format..."
-uv run ruff check --fix src tests
+uv run ruff check --fix --output-format=concise src tests
 uv run ruff format src tests
 
 echo "Running black..."
-uv run black src tests
+uv run black --quiet src tests
 
 echo "Running pyright type checking..."
 uv run pyright src tests
 
-echo "Linting complete! ✨"
+echo "Linting complete!"

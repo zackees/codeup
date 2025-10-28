@@ -1,5 +1,11 @@
 #!/bin/bash
 
 set -e
+
+# Force UTF-8 encoding for all subprocess output
+# This prevents encoding errors when output is captured by subprocess callers
+export PYTHONIOENCODING=utf-8
+export PYTHONUTF8=1
+
 echo "Running unittests"
-uv run pytest -n auto tests -v --durations=0
+uv run pytest -n auto tests -v --durations=0 --color=no
