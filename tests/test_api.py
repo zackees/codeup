@@ -30,11 +30,14 @@ class ApiTester(unittest.TestCase):
     def test_import_from_main_package(self):
         """Test that API exports are available from main package."""
         try:
-            from codeup import LintTestResult, lint_test
+            from codeup import Codeup
 
-            # Check that we can import from main package
-            self.assertIsNotNone(LintTestResult)
-            self.assertIsNotNone(lint_test)
+            # Check that we can import the API class
+            self.assertIsNotNone(Codeup)
+
+            # Check that API methods are available
+            self.assertIsNotNone(Codeup.lint_test)
+            self.assertIsNotNone(Codeup.LintTestResult)
         except ImportError as e:
             self.fail(f"Could not import from codeup package: {e}")
 

@@ -77,6 +77,52 @@ class RebaseResult:
     recovery_commands: list[str]
 
 
+@dataclass(frozen=True)
+class InteractiveAddResult:
+    """Result of interactive file add operation."""
+
+    success: bool
+    error_message: str
+    files_added: list[str]
+    files_skipped: list[str]
+
+
+@dataclass(frozen=True)
+class PreCheckGitResult:
+    """Result from pre_check_git operation."""
+
+    success: bool
+    error_message: str
+    has_changes: bool
+    untracked_files: list[str]
+    staged_files: list[str]
+    unstaged_files: list[str]
+
+
+@dataclass(frozen=True)
+class LintResult:
+    """Result from lint operation."""
+
+    success: bool
+    exit_code: int
+    stdout: str
+    stderr: str
+    stopped_early: bool
+    error_message: str
+
+
+@dataclass(frozen=True)
+class TestResult:
+    """Result from test operation."""
+
+    success: bool
+    exit_code: int
+    stdout: str
+    stderr: str
+    stopped_early: bool
+    error_message: str
+
+
 def safe_git_commit(message: str) -> int:
     """Safely execute git commit with proper UTF-8 encoding."""
     try:
@@ -643,6 +689,205 @@ def git_add_file(filename: str) -> int:
         logger.error(f"Error in git_add_file: {e}")
         error(f"Error executing git add {filename}: {e}")
         return 1
+
+
+def interactive_add_untracked_files(
+    is_tty: bool = True,
+    pre_test_mode: bool = False,
+    no_interactive: bool = False,
+) -> InteractiveAddResult:
+    """Interactively add untracked files to git staging area.
+
+    This function encapsulates the full workflow for handling untracked files:
+    - Gets list of untracked files
+    - Checks for incompatible modes (non-TTY, pre-test)
+    - Either auto-adds all files (non-interactive) or prompts for each file
+
+    Args:
+        is_tty: Whether running in a terminal (sys.stdin.isatty())
+        pre_test_mode: Whether running in pre-test mode (requires all files tracked)
+        no_interactive: Whether to auto-add all files without prompting
+
+    Returns:
+        InteractiveAddResult with success status, any error message, and lists of
+        files added and skipped
+    """
+    from codeup.console import error, info, warning
+    from codeup.utils import format_filename_with_warning, get_answer_yes_or_no
+
+    try:
+        # Get untracked files
+        untracked_files = get_untracked_files()
+
+        if not untracked_files:
+            # No untracked files - success
+            return InteractiveAddResult(
+                success=True,
+                error_message="",
+                files_added=[],
+                files_skipped=[],
+            )
+
+        # Check for incompatible modes
+        if not is_tty:
+            error_msg = "Untracked files detected when running as subprocess"
+            error(error_msg)
+            error("All files must be staged before running codeup as a subprocess")
+            error("Please stage these files with 'git add' or run codeup interactively")
+            return InteractiveAddResult(
+                success=False,
+                error_message=error_msg,
+                files_added=[],
+                files_skipped=untracked_files,
+            )
+
+        if pre_test_mode:
+            error_msg = "Untracked files detected in pre-test mode"
+            error(error_msg)
+            error("Pre-test mode requires all files to be tracked before running")
+            error("Please add these files to git or run codeup without --pre-test flag")
+            return InteractiveAddResult(
+                success=False,
+                error_message=error_msg,
+                files_added=[],
+                files_skipped=untracked_files,
+            )
+
+        files_added = []
+        files_skipped = []
+
+        if no_interactive:
+            # Non-interactive mode: auto-add all files
+            info("Non-interactive mode: automatically adding all untracked files")
+            for untracked_file in untracked_files:
+                formatted_name = format_filename_with_warning(untracked_file)
+                info(f"  Adding {formatted_name}")
+                if git_add_file(untracked_file) == 0:
+                    files_added.append(untracked_file)
+                else:
+                    files_skipped.append(untracked_file)
+        else:
+            # Interactive mode: prompt for each file
+            answer_yes = get_answer_yes_or_no("Continue?", "y")
+            if not answer_yes:
+                warning("Aborting")
+                return InteractiveAddResult(
+                    success=False,
+                    error_message="User aborted file add",
+                    files_added=[],
+                    files_skipped=untracked_files,
+                )
+
+            for untracked_file in untracked_files:
+                formatted_name = format_filename_with_warning(untracked_file)
+                answer_yes = get_answer_yes_or_no(f"  Add {formatted_name}?", "y")
+                if answer_yes:
+                    if git_add_file(untracked_file) == 0:
+                        files_added.append(untracked_file)
+                    else:
+                        files_skipped.append(untracked_file)
+                else:
+                    info(f"  Skipping {formatted_name}")
+                    files_skipped.append(untracked_file)
+
+        return InteractiveAddResult(
+            success=True,
+            error_message="",
+            files_added=files_added,
+            files_skipped=files_skipped,
+        )
+
+    except KeyboardInterrupt:
+        logger.info("interactive_add_untracked_files interrupted by user")
+        interrupt_main()
+        raise
+    except Exception as e:
+        error_msg = f"Error during interactive file add: {e}"
+        logger.error(error_msg)
+        return InteractiveAddResult(
+            success=False,
+            error_message=error_msg,
+            files_added=[],
+            files_skipped=[],
+        )
+
+
+def pre_check_git(allow_interactive: bool = False) -> PreCheckGitResult:
+    """Pre-check git status and optionally prompt for interactive file adds.
+
+    This function checks the current git repository status, including:
+    - Untracked files
+    - Unstaged changes
+    - Staged changes
+
+    When allow_interactive=True, it will prompt the user to add untracked files
+    interactively (similar to interactive_add_untracked_files).
+
+    Args:
+        allow_interactive: If True, prompt to add untracked files when detected
+
+    Returns:
+        PreCheckGitResult with success status, file lists, and change indicators
+    """
+    import sys
+
+    try:
+        # Get all git status information
+        untracked_files = get_untracked_files()
+        staged_files = get_staged_files()
+        unstaged_files = get_unstaged_files()
+
+        # Determine if there are any changes
+        has_changes = bool(untracked_files or staged_files or unstaged_files)
+
+        # Handle interactive mode for untracked files
+        if allow_interactive and untracked_files:
+            result = interactive_add_untracked_files(
+                is_tty=sys.stdin.isatty(), pre_test_mode=False, no_interactive=False
+            )
+
+            # If interactive add failed, return with error
+            if not result.success:
+                return PreCheckGitResult(
+                    success=False,
+                    error_message=result.error_message,
+                    has_changes=has_changes,
+                    untracked_files=untracked_files,
+                    staged_files=staged_files,
+                    unstaged_files=unstaged_files,
+                )
+
+            # Refresh file lists after interactive add
+            # Files that were added are now staged, not untracked
+            untracked_files = get_untracked_files()
+            staged_files = get_staged_files()
+            unstaged_files = get_unstaged_files()
+            has_changes = bool(untracked_files or staged_files or unstaged_files)
+
+        return PreCheckGitResult(
+            success=True,
+            error_message="",
+            has_changes=has_changes,
+            untracked_files=untracked_files,
+            staged_files=staged_files,
+            unstaged_files=unstaged_files,
+        )
+
+    except KeyboardInterrupt:
+        logger.info("pre_check_git interrupted by user")
+        interrupt_main()
+        raise
+    except Exception as e:
+        error_msg = f"Error during git pre-check: {e}"
+        logger.error(error_msg)
+        return PreCheckGitResult(
+            success=False,
+            error_message=error_msg,
+            has_changes=False,
+            untracked_files=[],
+            staged_files=[],
+            unstaged_files=[],
+        )
 
 
 def git_fetch() -> int:

@@ -97,9 +97,11 @@ if sys.platform == "win32":
     # when output is piped (prevents multi-second delays in test output)
     os.environ["PYTHONUNBUFFERED"] = "1"
 
-    if sys.stdout.encoding != "utf-8":
+    # Only wrap stdout/stderr if they have .buffer attribute (real file objects)
+    # Skip wrapping for StringIO or other test doubles
+    if hasattr(sys.stdout, "buffer") and sys.stdout.encoding != "utf-8":
         sys.stdout = codecs.getwriter("utf-8")(sys.stdout.buffer, "strict")
-    if sys.stderr.encoding != "utf-8":
+    if hasattr(sys.stderr, "buffer") and sys.stderr.encoding != "utf-8":
         sys.stderr = codecs.getwriter("utf-8")(sys.stderr.buffer, "strict")
 
 
