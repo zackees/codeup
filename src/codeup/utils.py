@@ -6,7 +6,6 @@ import shlex
 import subprocess
 import sys
 import threading
-import warnings
 from pathlib import Path
 from shutil import which
 
@@ -359,12 +358,6 @@ def check_environment() -> Path:
     if not git_dir:
         print("Error: .git directory does not exist.")
         sys.exit(1)
-
-    if not which("oco"):
-        warnings.warn(
-            "opencommit (oco) is not installed. Skipping automatic commit message generation.",
-            stacklevel=2,
-        )
     return Path(git_dir)
 
 

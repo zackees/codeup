@@ -6,7 +6,7 @@ Runs:
     * if ./lint exists, then run it
     * if ./test exists, then run it
     * git add .
-    * opencommit (oco)
+    * AI-generated commit message (via OpenAI/Anthropic)
 """
 
 import _thread
