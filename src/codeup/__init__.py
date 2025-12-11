@@ -1,6 +1,6 @@
 """CodeUp - Intelligent git workflow automation tool."""
 
-__version__ = "1.0.19"
+__version__ = "1.0.23"
 
 # Import result dataclasses with underscore to keep them private at module level
 from .api import LintTestResult as _LintTestResult
