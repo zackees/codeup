@@ -41,7 +41,12 @@ from codeup.git_utils import (
     has_unpushed_commits,
     safe_push,
 )
-from codeup.keyring import set_anthropic_api_key, set_openai_api_key
+from codeup.keyring import (
+    clear_anthropic_api_key,
+    clear_openai_api_key,
+    set_anthropic_api_key,
+    set_openai_api_key,
+)
 from codeup.timestamp_formatter import TimestampOutputFormatter
 from codeup.utils import (
     _exec,
@@ -225,6 +230,27 @@ def _main_worker() -> int:
             return 0
         else:
             return 1
+
+    # Handle key clearing flags
+    if args.clear_key_anthropic:
+        clear_anthropic_api_key()
+        # Check if key still exists in environment variable
+        if os.environ.get("ANTHROPIC_API_KEY"):
+            print(
+                "Warning: ANTHROPIC_API_KEY environment variable is still set. "
+                "Remove it manually to fully clear the key."
+            )
+        return 0
+
+    if args.clear_key_openai:
+        clear_openai_api_key()
+        # Check if key still exists in environment variable
+        if os.environ.get("OPENAI_API_KEY"):
+            print(
+                "Warning: OPENAI_API_KEY environment variable is still set. "
+                "Remove it manually to fully clear the key."
+            )
+        return 0
 
     git_path = check_environment()
     print(f"Git repository: {git_path}", flush=True)

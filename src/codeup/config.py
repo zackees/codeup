@@ -119,6 +119,8 @@ Examples:
   openaicfg --set-key-anthropic sk-ant-...     Set Anthropic key in keyring (secure)
   openaicfg --set-key-openai sk-...           Set OpenAI key in keyring (secure)
   openaicfg --set-key-anthropic sk-ant-... --use-config  Store in config file instead
+  openaicfg --clear-key-anthropic             Clear Anthropic key from config/keyring
+  openaicfg --clear-key-openai                Clear OpenAI key from config/keyring
   openaicfg --show-keys                       Show current key status
         """,
     )
@@ -147,6 +149,18 @@ Examples:
         "--show-keys",
         action="store_true",
         help="Show current API key status (masked for security)",
+    )
+
+    parser.add_argument(
+        "--clear-key-anthropic",
+        action="store_true",
+        help="Clear Anthropic API key from config file and keyring",
+    )
+
+    parser.add_argument(
+        "--clear-key-openai",
+        action="store_true",
+        help="Clear OpenAI API key from config file and keyring",
     )
 
     args = parser.parse_args()
@@ -194,6 +208,38 @@ Examples:
         ):
             return 0
         return 1
+
+    # Clear Anthropic key
+    if args.clear_key_anthropic:
+        import codeup.config as config_module
+        from codeup.keyring import clear_anthropic_api_key
+
+        clear_anthropic_api_key(config_manager=config_module)
+        # Check if key still exists in environment variable
+        import os
+
+        if os.environ.get("ANTHROPIC_API_KEY"):
+            print(
+                "Warning: ANTHROPIC_API_KEY environment variable is still set. "
+                "Remove it manually to fully clear the key."
+            )
+        return 0
+
+    # Clear OpenAI key
+    if args.clear_key_openai:
+        import codeup.config as config_module
+        from codeup.keyring import clear_openai_api_key
+
+        clear_openai_api_key(config_manager=config_module)
+        # Check if key still exists in environment variable
+        import os
+
+        if os.environ.get("OPENAI_API_KEY"):
+            print(
+                "Warning: OPENAI_API_KEY environment variable is still set. "
+                "Remove it manually to fully clear the key."
+            )
+        return 0
 
     # If no specific action, show help
     parser.print_help()

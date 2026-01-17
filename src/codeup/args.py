@@ -20,6 +20,8 @@ class Args:
     just_ai_commit: bool
     set_key_anthropic: str | None
     set_key_openai: str | None
+    clear_key_anthropic: bool
+    clear_key_openai: bool
     dry_run: bool
     lint: bool
     test: bool
@@ -66,6 +68,12 @@ class Args:
         assert isinstance(
             self.set_key_openai, str | type(None)
         ), f"Expected (str, type(None)), got {type(self.set_key_openai)}"
+        assert isinstance(
+            self.clear_key_anthropic, bool
+        ), f"Expected bool, got {type(self.clear_key_anthropic)}"
+        assert isinstance(
+            self.clear_key_openai, bool
+        ), f"Expected bool, got {type(self.clear_key_openai)}"
         assert isinstance(
             self.dry_run, bool
         ), f"Expected bool, got {type(self.dry_run)}"
@@ -141,6 +149,16 @@ def _parse_args() -> Args:
         help="Set OpenAI API key and exit",
     )
     parser.add_argument(
+        "--clear-key-anthropic",
+        action="store_true",
+        help="Clear Anthropic API key from config file and keyring",
+    )
+    parser.add_argument(
+        "--clear-key-openai",
+        action="store_true",
+        help="Clear OpenAI API key from config file and keyring",
+    )
+    parser.add_argument(
         "--dry-run",
         help="Run only lint and test scripts without git operations or user interaction",
         action="store_true",
@@ -177,6 +195,8 @@ def _parse_args() -> Args:
         just_ai_commit=tmp.just_ai_commit,
         set_key_anthropic=tmp.set_key_anthropic,
         set_key_openai=tmp.set_key_openai,
+        clear_key_anthropic=tmp.clear_key_anthropic,
+        clear_key_openai=tmp.clear_key_openai,
         dry_run=tmp.dry_run,
         lint=tmp.lint,
         test=tmp.test,
@@ -235,6 +255,8 @@ def parse_lint_test_args() -> Args:
         just_ai_commit=False,
         set_key_anthropic=None,
         set_key_openai=None,
+        clear_key_anthropic=False,
+        clear_key_openai=False,
         dry_run=True,  # Always true for lint-test
         lint=tmp.lint,
         test=tmp.test,

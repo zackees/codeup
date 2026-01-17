@@ -276,6 +276,59 @@ class APIKeyManager:
             prefer_config=prefer_config,
         )
 
+    def clear_api_key(
+        self,
+        key_name: str,
+        keyring_username: str,
+        config_key: str,
+    ) -> bool:
+        """
+        Clear API key from all storage locations (config file and keyring).
+        Returns True if key was cleared from at least one location.
+        Note: Cannot clear environment variables - user must do that manually.
+        """
+        cleared_any = False
+
+        # 1. Clear from config file
+        if self.config_manager:
+            try:
+                config = self.config_manager.create_or_load_config()
+                if config_key in config:
+                    del config[config_key]
+                    self.config_manager.save_config(config)
+                    logger.info(f"{key_name} API key cleared from config file")
+                    print(f"{key_name} API key cleared from config file")
+                    cleared_any = True
+            except Exception as e:
+                logger.error(f"Error clearing {key_name} key from config: {e}")
+
+        # 2. Clear from keyring
+        if self.keyring_manager.delete_password(keyring_username):
+            logger.info(f"{key_name} API key cleared from keyring")
+            print(f"{key_name} API key cleared from keyring")
+            cleared_any = True
+
+        if not cleared_any:
+            print(f"No {key_name} API key found in config file or keyring to clear")
+
+        return cleared_any
+
+    def clear_openai_api_key(self) -> bool:
+        """Clear OpenAI API key from all storage locations."""
+        return self.clear_api_key(
+            key_name="OpenAI",
+            keyring_username="openai_api_key",
+            config_key="openai_key",
+        )
+
+    def clear_anthropic_api_key(self) -> bool:
+        """Clear Anthropic API key from all storage locations."""
+        return self.clear_api_key(
+            key_name="Anthropic",
+            keyring_username="anthropic_api_key",
+            config_key="anthropic_key",
+        )
+
 
 # Global instance for backward compatibility
 _default_keyring_manager = KeyringManager()
@@ -321,3 +374,13 @@ def set_anthropic_api_key(
     return get_default_api_key_manager(config_manager).set_anthropic_api_key(
         api_key, prefer_config
     )
+
+
+def clear_openai_api_key(config_manager=None) -> bool:
+    """Clear OpenAI API key - convenience function."""
+    return get_default_api_key_manager(config_manager).clear_openai_api_key()
+
+
+def clear_anthropic_api_key(config_manager=None) -> bool:
+    """Clear Anthropic API key - convenience function."""
+    return get_default_api_key_manager(config_manager).clear_anthropic_api_key()
