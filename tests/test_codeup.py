@@ -81,12 +81,15 @@ class CodeupTester(unittest.TestCase):
             ):
                 try:
                     result = codeup_main()
-                    # Check that the command succeeded
+                    # With new behavior: when both AI providers fail and terminal is not a PTY,
+                    # the command should fail with exit code 1 and ask user to commit manually
                     self.assertEqual(
-                        result, 0, "codeup --just-ai-commit should return 0"
+                        result,
+                        1,
+                        "codeup --just-ai-commit should return 1 when both AI providers fail in non-PTY",
                     )
 
-                    # Verify that changes were committed
+                    # Verify that changes were NOT committed (staged but not committed)
                     status_result = subprocess.run(
                         ["git", "status", "--porcelain"],
                         capture_output=True,
@@ -94,14 +97,15 @@ class CodeupTester(unittest.TestCase):
                         check=True,
                     )
 
-                    # Should be no uncommitted changes
-                    self.assertEqual(
+                    # Should still have staged changes (not committed)
+                    self.assertNotEqual(
                         status_result.stdout.strip(),
                         "",
-                        "Working directory should be clean after commit",
+                        "Changes should be staged but not committed when AI fails in non-PTY",
                     )
 
-                    # Verify the commit was created
+                    # Verify no new commit was created (since AI failed in non-PTY)
+                    # The initial commit should still be the latest
                     log_result = subprocess.run(
                         ["git", "log", "--oneline", "-1"],
                         capture_output=True,
@@ -109,8 +113,8 @@ class CodeupTester(unittest.TestCase):
                         check=True,
                     )
 
-                    # Should contain automated commit message (since no AI keys)
-                    self.assertIn("chore: automated commit", log_result.stdout)
+                    # Should contain the initial commit message, not an automated one
+                    self.assertIn("Initial commit", log_result.stdout)
 
                 finally:
                     # Restore original stdin and argv

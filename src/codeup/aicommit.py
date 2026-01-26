@@ -275,18 +275,24 @@ def _opencommit_or_prompt_for_commit_message(
             "AI commit message generation failed in non-interactive terminal"
         )
 
-    # Fall back to manual commit message
-    if no_interactive:
-        from codeup.console import info, warning
+    # Check if terminal is a PTY before attempting manual input
+    # If both AI providers failed and we're not in a PTY, exit with error
+    if not sys.stdin.isatty():
+        from codeup.console import error, info
 
-        logger.warning(
-            "Cannot get manual commit message input in non-interactive mode, using fallback"
+        logger.error(
+            "AI commit generation failed and terminal is not a PTY - cannot get manual input"
         )
-        warning("Cannot get commit message input in non-interactive mode")
-        info("Using generic commit message as fallback...")
-        safe_git_commit("chore: automated commit (AI unavailable)")
-        return
+        error("⚠ AI commit message generation failed")
+        error("⚠ Cannot prompt for manual input (terminal is not interactive)")
+        info("Both OpenAI and Anthropic API calls failed.")
+        info("Please provide a commit message manually:")
+        info("  git commit -m 'your commit message'")
+        raise RuntimeError(
+            "AI commit message generation failed in non-interactive terminal"
+        )
 
+    # Fall back to manual commit message (interactive terminal available)
     try:
 
         def input_with_timeout(prompt: str, timeout_seconds: int = 300) -> str:
