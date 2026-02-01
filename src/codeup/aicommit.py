@@ -18,8 +18,37 @@ class InputTimeoutError(Exception):
     pass
 
 
-def _generate_ai_commit_message_anthropic(diff_text: str) -> str | None:
-    """Generate commit message using Anthropic Claude API as fallback."""
+class AuthException(Exception):
+    """Raised when API authentication fails due to missing or invalid keys."""
+
+    def __init__(self, message: str, provider: str | None = None):
+        self.provider = provider
+        self.message = message
+        super().__init__(message)
+
+    def get_fix_instructions(self) -> str:
+        """Return user-friendly instructions to fix the auth issue."""
+        lines = [
+            "To fix this, either:",
+            "  1. Configure a valid API key:",
+            "       export OPENAI_API_KEY=your_key",
+            "       export ANTHROPIC_API_KEY=your_key",
+            "  2. Or provide a commit message manually:",
+            "       codeup -m 'your commit message'",
+        ]
+        return "\n".join(lines)
+
+
+def _generate_ai_commit_message_anthropic(
+    diff_text: str,
+) -> str | AuthException | None:
+    """Generate commit message using Anthropic Claude API as fallback.
+
+    Returns:
+        str: Successfully generated commit message
+        AuthException: Authentication failed (missing or invalid key)
+        None: Other failures (network, API errors, etc.)
+    """
     try:
         import anthropic
 
@@ -28,7 +57,9 @@ def _generate_ai_commit_message_anthropic(diff_text: str) -> str | None:
         api_key = get_anthropic_api_key()
         if not api_key:
             logger.info("No Anthropic API key found")
-            return None
+            return AuthException(
+                "No Anthropic API key configured", provider="anthropic"
+            )
 
         logger.info("Using Anthropic Claude API for commit message generation")
         client = anthropic.Anthropic(api_key=api_key)
@@ -73,7 +104,7 @@ Respond with only the commit message, nothing else."""
 
     except ImportError:
         logger.info("Anthropic library not available")
-        return None
+        return AuthException("Anthropic library not installed", provider="anthropic")
     except KeyboardInterrupt:
         logger.info("_generate_ai_commit_message_anthropic interrupted by user")
         from codeup.git_utils import interrupt_main
@@ -81,12 +112,28 @@ Respond with only the commit message, nothing else."""
         interrupt_main()
         raise
     except Exception as e:
+        error_msg = str(e)
+        # Check for authentication errors
+        if "401" in error_msg or "authentication" in error_msg.lower():
+            logger.warning(f"Anthropic authentication failed: {error_msg}")
+            return AuthException(
+                f"Invalid Anthropic API key: {error_msg}", provider="anthropic"
+            )
         logger.error(f"Failed to generate Anthropic commit message: {e}")
         return None
 
 
-def _generate_ai_commit_message() -> str | None:
-    """Generate commit message using OpenAI API with Anthropic fallback."""
+def _generate_ai_commit_message() -> str | AuthException | Exception:
+    """Generate commit message using OpenAI API with Anthropic fallback.
+
+    Returns:
+        str: Successfully generated commit message
+        AuthException: Authentication failed for all providers (missing or invalid keys)
+        Exception: Unexpected error occurred (with deep logging already performed)
+    """
+    openai_auth_error: AuthException | None = None
+    anthropic_auth_error: AuthException | None = None
+
     try:
         # Import and use existing OpenAI config system
         from codeup.config import get_openai_api_key
@@ -102,7 +149,9 @@ def _generate_ai_commit_message() -> str | None:
             diff_text = get_git_diff()
             if not diff_text:
                 logger.warning("No changes found in git diff")
-                return None
+                return AuthException(
+                    "No changes found in git diff to generate commit message"
+                )
 
         # Try OpenAI first if we have a key
         if api_key:
@@ -159,8 +208,11 @@ Respond with only the commit message, nothing else."""
             except Exception as e:
                 # Extract cleaner error message from OpenAI exceptions
                 error_msg = str(e)
-                if "Error code: 401" in error_msg and "Incorrect API key" in error_msg:
+                is_auth_error = False
+
+                if "Error code: 401" in error_msg or "Incorrect API key" in error_msg:
                     clean_msg = "Invalid OpenAI API key"
+                    is_auth_error = True
                 elif "Error code:" in error_msg and "message" in error_msg:
                     # Try to extract just the message part from OpenAI error
                     try:
@@ -188,30 +240,47 @@ Respond with only the commit message, nothing else."""
                 logger.warning(f"OpenAI commit message generation failed: {clean_msg}")
                 warning(f"⚠ OpenAI generation failed: {clean_msg}")
 
-        # Fallback to Anthropic only if we have a key
-        from codeup.config import get_anthropic_api_key
+                if is_auth_error:
+                    openai_auth_error = AuthException(clean_msg, provider="openai")
+        else:
+            # No OpenAI key configured
+            logger.info("No OpenAI API key found")
+            openai_auth_error = AuthException(
+                "No OpenAI API key configured", provider="openai"
+            )
+
+        # Fallback to Anthropic
         from codeup.console import info
 
-        if get_anthropic_api_key():
-            info("Trying Anthropic as fallback for commit message generation")
-            anthropic_message = _generate_ai_commit_message_anthropic(diff_text)
-            if anthropic_message:
-                return anthropic_message
+        info("Trying Anthropic as fallback for commit message generation")
+        anthropic_result = _generate_ai_commit_message_anthropic(diff_text)
+
+        if isinstance(anthropic_result, str):
+            # Success - return the commit message
+            return anthropic_result
+        elif isinstance(anthropic_result, AuthException):
+            anthropic_auth_error = anthropic_result
+            logger.info(f"Anthropic auth error: {anthropic_auth_error.message}")
         else:
-            info("No Anthropic API key found, skipping Anthropic fallback")
+            # None - other failure (network, etc.)
+            logger.warning("Anthropic generation failed with non-auth error")
 
-        # If both failed
-        from codeup.console import info, warning
+        # Both providers failed - determine if it's an auth issue
+        if openai_auth_error and anthropic_auth_error:
+            # Both providers have auth issues
+            combined_msg = (
+                f"No valid API keys configured. "
+                f"OpenAI: {openai_auth_error.message}. "
+                f"Anthropic: {anthropic_auth_error.message}."
+            )
+            logger.warning(f"All AI providers failed with auth errors: {combined_msg}")
+            return AuthException(combined_msg)
 
-        logger.warning("AI commit message generation failed")
-        warning("⚠ AI commit message generation failed")
-        info("Solutions:")
-        info("  - Set OpenAI API key: export OPENAI_API_KEY=your_key")
-        info("  - Set Anthropic API key: export ANTHROPIC_API_KEY=your_key")
-        info(
-            "  - Set keys via config: python -c \"from codeup.config import save_config; save_config({'openai_key': 'your_openai_key', 'anthropic_key': 'your_anthropic_key'})\""
+        # At least one provider had a non-auth failure
+        logger.warning("AI commit message generation failed (non-auth error)")
+        return AuthException(
+            "AI commit message generation failed. Check API keys and network connectivity."
         )
-        return None
 
     except KeyboardInterrupt:
         logger.info("_generate_ai_commit_message interrupted by user")
@@ -220,77 +289,121 @@ Respond with only the commit message, nothing else."""
         interrupt_main()
         raise
     except Exception as e:
-        from codeup.console import error
-
-        logger.error(f"Failed to generate AI commit message: {e}")
-        logger.error(f"Exception type: {type(e).__name__}")
-        logger.error(f"Exception args: {e.args}")
+        # Deep logging for unexpected exceptions
         import traceback
 
-        logger.error(f"Traceback: {traceback.format_exc()}")
+        logger.error("=" * 60)
+        logger.error("UNEXPECTED ERROR in _generate_ai_commit_message")
+        logger.error("=" * 60)
+        logger.error(f"Exception type: {type(e).__name__}")
+        logger.error(f"Exception message: {e}")
+        logger.error(f"Exception args: {e.args}")
+        logger.error(f"Full traceback:\n{traceback.format_exc()}")
+        logger.error("=" * 60)
 
-        error_msg = str(e)
-        error("⚠ AI commit message generation failed")
-        error(f"Exception: {type(e).__name__}: {error_msg}")
-        error("Full traceback:")
-        error(traceback.format_exc())
+        # Also log context information
+        logger.error("Context at time of error:")
+        logger.error(f"  - OpenAI auth error: {openai_auth_error}")
+        logger.error(f"  - Anthropic auth error: {anthropic_auth_error}")
+        logger.error("=" * 60)
 
-        return None
+        # Return the exception for the caller to handle
+        return e
 
 
 def _opencommit_or_prompt_for_commit_message(
     auto_accept: bool, no_interactive: bool = False
 ) -> None:
     """Generate AI commit message or prompt for manual input."""
-    from codeup.console import info, success
+    from codeup.console import error, info, success
 
     # Try to generate AI commit message first
-    ai_message = _generate_ai_commit_message()
+    result = _generate_ai_commit_message()
 
-    if ai_message:
-        success(f"Generated commit message: {ai_message}")
+    # Handle successful commit message generation
+    if isinstance(result, str):
+        success(f"Generated commit message: {result}")
         # Always auto-accept AI-generated messages when they succeed
         info("Auto-accepting AI-generated commit message")
-        safe_git_commit(ai_message)
+        safe_git_commit(result)
         return
-    elif no_interactive:
-        from codeup.console import error, info
 
-        # In non-interactive mode, fail if AI commit generation fails
-        logger.error("AI commit generation failed in non-interactive mode")
-        error("⚠ Failed to generate AI commit message in non-interactive mode")
-        info("This may be due to:")
-        info("  - OpenAI API issues or rate limiting")
-        info("  - Missing or invalid OpenAI API key")
-        info("  - Network connectivity problems")
-        info("Solutions:")
-        info("  - Run in interactive mode: codeup (without --no-interactive)")
-        info("  - Set API key via environment: export OPENAI_API_KEY=your_key")
-        info("  - Set API key via imgai: imgai --set-key YOUR_KEY")
-        info("  - Set API key via Python config:")
-        info(
-            "    python -c \"from codeup.config import save_config; save_config({'openai_key': 'your_key'})\""
-        )
-        raise RuntimeError(
-            "AI commit message generation failed in non-interactive terminal"
+    # Handle AuthException - authentication/key configuration issue
+    if isinstance(result, AuthException):
+        auth_error = result
+        logger.warning(
+            f"AI commit generation failed with auth error: {auth_error.message}"
         )
 
-    # Check if terminal is a PTY before attempting manual input
-    # If both AI providers failed and we're not in a PTY, exit with error
-    if not sys.stdin.isatty():
-        from codeup.console import error, info
+        if no_interactive:
+            # In non-interactive mode, fail immediately with clear instructions
+            logger.error("AI commit generation failed in non-interactive mode")
+            error(f"⚠ {auth_error.message}")
+            error("⚠ Running in non-interactive mode (--no-interactive)")
+            info(auth_error.get_fix_instructions())
+            raise RuntimeError(
+                f"Cannot generate commit message: {auth_error.message}. Use: codeup -m 'your commit message'"
+            )
 
+        # Check if terminal is a PTY before attempting manual input
+        if not sys.stdin.isatty():
+            logger.error(
+                "AI commit generation failed and terminal is not a PTY - cannot get manual input"
+            )
+            error(f"⚠ {auth_error.message}")
+            error(
+                "⚠ Cannot prompt for manual input (not running in interactive terminal)"
+            )
+            info(auth_error.get_fix_instructions())
+            raise RuntimeError(
+                f"Cannot generate commit message: {auth_error.message}. Use: codeup -m 'your commit message'"
+            )
+
+        # PTY available - warn but allow manual input
+        from codeup.console import warning
+
+        warning(f"⚠ {auth_error.message}")
+        info("Falling back to manual commit message input...")
+
+    # Handle unexpected Exception - rare case with deep logging already done
+    elif isinstance(result, Exception):
+        unexpected_error = result
         logger.error(
-            "AI commit generation failed and terminal is not a PTY - cannot get manual input"
+            f"Unexpected error during AI commit generation: {unexpected_error}"
         )
-        error("⚠ AI commit message generation failed")
-        error("⚠ Cannot prompt for manual input (terminal is not interactive)")
-        info("Both OpenAI and Anthropic API calls failed.")
-        info("Please provide a commit message manually:")
-        info("  git commit -m 'your commit message'")
-        raise RuntimeError(
-            "AI commit message generation failed in non-interactive terminal"
+
+        if no_interactive:
+            error(
+                f"⚠ Unexpected error: {type(unexpected_error).__name__}: {unexpected_error}"
+            )
+            error("⚠ Running in non-interactive mode (--no-interactive)")
+            info("Check logs for detailed error information.")
+            info("Provide a commit message manually: codeup -m 'your commit message'")
+            raise RuntimeError(
+                f"Cannot generate commit message due to unexpected error: {unexpected_error}. Use: codeup -m 'your commit message'"
+            )
+
+        if not sys.stdin.isatty():
+            error(
+                f"⚠ Unexpected error: {type(unexpected_error).__name__}: {unexpected_error}"
+            )
+            error(
+                "⚠ Cannot prompt for manual input (not running in interactive terminal)"
+            )
+            info("Check logs for detailed error information.")
+            info("Provide a commit message manually: codeup -m 'your commit message'")
+            raise RuntimeError(
+                f"Cannot generate commit message due to unexpected error: {unexpected_error}. Use: codeup -m 'your commit message'"
+            )
+
+        # PTY available - warn but allow manual input
+        from codeup.console import warning
+
+        warning(
+            f"⚠ Unexpected error: {type(unexpected_error).__name__}: {unexpected_error}"
         )
+        info("Check logs for detailed error information.")
+        info("Falling back to manual commit message input...")
 
     # Fall back to manual commit message (interactive terminal available)
     try:

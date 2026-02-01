@@ -3,7 +3,7 @@
 import unittest
 from unittest.mock import patch
 
-from codeup.aicommit import _opencommit_or_prompt_for_commit_message
+from codeup.aicommit import AuthException, _opencommit_or_prompt_for_commit_message
 
 
 class TestAICommitNonPTY(unittest.TestCase):
@@ -18,8 +18,10 @@ class TestAICommitNonPTY(unittest.TestCase):
         Test that when both AI providers fail AND terminal is not a PTY,
         the function raises RuntimeError instead of using a fallback message.
         """
-        # Mock AI generation to fail (return None)
-        mock_generate_ai.return_value = None
+        # Mock AI generation to fail with AuthException
+        mock_generate_ai.return_value = AuthException(
+            "No valid API keys configured", provider=None
+        )
 
         # Mock terminal to not be a PTY
         mock_isatty.return_value = False
@@ -32,7 +34,7 @@ class TestAICommitNonPTY(unittest.TestCase):
 
         # Verify error message contains expected text
         error_message = str(context.exception)
-        self.assertIn("non-interactive terminal", error_message.lower())
+        self.assertIn("codeup -m", error_message.lower())
 
     @patch("codeup.aicommit._generate_ai_commit_message")
     @patch("sys.stdin.isatty")
@@ -66,8 +68,10 @@ class TestAICommitNonPTY(unittest.TestCase):
         Test that when AI fails but terminal IS a PTY,
         manual input is requested.
         """
-        # Mock AI generation to fail
-        mock_generate_ai.return_value = None
+        # Mock AI generation to fail with AuthException
+        mock_generate_ai.return_value = AuthException(
+            "No valid API keys configured", provider=None
+        )
 
         # Mock terminal to be a PTY
         mock_isatty.return_value = True
@@ -91,8 +95,10 @@ class TestAICommitNonPTY(unittest.TestCase):
         Test that when AI fails in no_interactive mode,
         RuntimeError is raised regardless of PTY status.
         """
-        # Mock AI generation to fail
-        mock_generate_ai.return_value = None
+        # Mock AI generation to fail with AuthException
+        mock_generate_ai.return_value = AuthException(
+            "No valid API keys configured", provider=None
+        )
 
         # Should raise RuntimeError with appropriate message
         with self.assertRaises(RuntimeError) as context:
@@ -102,7 +108,51 @@ class TestAICommitNonPTY(unittest.TestCase):
 
         # Verify error message
         error_message = str(context.exception)
-        self.assertIn("non-interactive", error_message.lower())
+        self.assertIn("codeup -m", error_message.lower())
+
+    @patch("codeup.aicommit._generate_ai_commit_message")
+    def test_unexpected_exception_non_interactive_raises_error(self, mock_generate_ai):
+        """
+        Test that when an unexpected Exception occurs in non-interactive mode,
+        RuntimeError is raised with appropriate message.
+        """
+        # Mock AI generation to fail with unexpected Exception
+        mock_generate_ai.return_value = ValueError("Unexpected error occurred")
+
+        # Should raise RuntimeError with appropriate message
+        with self.assertRaises(RuntimeError) as context:
+            _opencommit_or_prompt_for_commit_message(
+                auto_accept=True, no_interactive=True
+            )
+
+        # Verify error message mentions the unexpected error
+        error_message = str(context.exception)
+        self.assertIn("unexpected error", error_message.lower())
+
+    @patch("codeup.aicommit._generate_ai_commit_message")
+    @patch("sys.stdin.isatty")
+    def test_unexpected_exception_non_pty_raises_error(
+        self, mock_isatty, mock_generate_ai
+    ):
+        """
+        Test that when an unexpected Exception occurs AND terminal is not a PTY,
+        RuntimeError is raised.
+        """
+        # Mock AI generation to fail with unexpected Exception
+        mock_generate_ai.return_value = ValueError("Unexpected error occurred")
+
+        # Mock terminal to not be a PTY
+        mock_isatty.return_value = False
+
+        # Should raise RuntimeError with appropriate message
+        with self.assertRaises(RuntimeError) as context:
+            _opencommit_or_prompt_for_commit_message(
+                auto_accept=True, no_interactive=False
+            )
+
+        # Verify error message mentions the unexpected error
+        error_message = str(context.exception)
+        self.assertIn("unexpected error", error_message.lower())
 
 
 if __name__ == "__main__":
