@@ -68,7 +68,7 @@ def _set_key_in_keyring(service: str, key_name: str, api_key: str) -> bool:
 
 def _set_key_in_config(key_name: str, api_key: str) -> bool:
     """Set API key in config file. Returns True if successful."""
-    try:
+    try:  # noqa: KBI001 - config file write, non-blocking
         config = create_or_load_config()
         config[key_name] = api_key
         save_config(config)

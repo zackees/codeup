@@ -183,10 +183,10 @@ def _run_command_streaming(
             if _activity_tracker is not None:
                 _activity_tracker[0] = time.time()
     except KeyboardInterrupt:
-        rp.kill()
         from codeup.git_utils import interrupt_main
 
         interrupt_main()
+        rp.kill()
         raise
     except TimeoutError as e:
         import traceback
@@ -451,8 +451,14 @@ def _main_worker() -> int:
                         unpushed_count = int(stdout.strip())
                     # Get files in unpushed commits
                     unpushed_files = get_unpushed_commit_files()
-            except (KeyboardInterrupt, Exception):
-                pass
+            except KeyboardInterrupt:
+                logger.info("Unpushed commit check interrupted by user")
+                from codeup.git_utils import interrupt_main
+
+                interrupt_main()
+                raise
+            except Exception as e:
+                logger.error(f"Error checking unpushed commits: {e}")
 
         # Display clean, color-coded status summary
         git_status_summary(
@@ -899,7 +905,7 @@ def _dump_all_thread_stacks() -> None:
         print("-" * 40, file=sys.stderr)
 
         # Print the stack trace for this thread
-        try:
+        try:  # noqa: KBI001 - diagnostic function during timeout, not interactive
             traceback.print_stack(frame, file=sys.stderr)
         except Exception as e:
             print(f"Error printing stack trace: {e}", file=sys.stderr)
@@ -982,6 +988,7 @@ def main() -> int:
             result[0] = _main_worker()
         except KeyboardInterrupt:
             logger.info("Worker thread interrupted")
+            _thread.interrupt_main()
             set_interrupted()  # Ensure flag is set
             result[0] = 1
         except Exception as e:
@@ -1007,10 +1014,16 @@ def main() -> int:
         return result[0]
     except KeyboardInterrupt:
         logger.info("Main thread interrupted by user")
+        _thread.interrupt_main()
         set_interrupted()  # Signal worker thread to stop
         print("Aborting", file=sys.stderr)
         # Wait briefly for worker to notice interrupt and exit cleanly
-        worker_thread.join(timeout=0.5)
+        # Wrap in try/except because multiple _thread.interrupt_main() calls
+        # can queue additional KeyboardInterrupt exceptions
+        try:
+            worker_thread.join(timeout=0.5)
+        except KeyboardInterrupt:
+            _thread.interrupt_main()
         return 1
 
 

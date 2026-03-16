@@ -13,6 +13,9 @@ uv run ruff format src tests
 echo "Running black..."
 uv run black --quiet src tests
 
+echo "Running KeyboardInterrupt checker..."
+uv run python ci/lint_python/keyboard_interrupt_checker.py src --exclude .venv __pycache__
+
 echo "Running pyright type checking..."
 uv run pyright src tests
 

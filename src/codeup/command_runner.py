@@ -61,8 +61,8 @@ def run_command_with_callback(
                         break
                 except KeyboardInterrupt:
                     logger.info("Callback interrupted by user")
-                    rp.kill()
                     interrupt_main()
+                    rp.kill()
                     raise
                 except Exception as e:
                     logger.error(f"Callback raised exception: {e}")
@@ -72,8 +72,8 @@ def run_command_with_callback(
 
     except KeyboardInterrupt:
         logger.info("Command execution interrupted by user")
-        rp.kill()
         interrupt_main()
+        rp.kill()
         raise
     except TimeoutError as e:
         logger.error(f"Timeout waiting for process output: {e}")

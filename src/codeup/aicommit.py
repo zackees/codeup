@@ -215,7 +215,7 @@ Respond with only the commit message, nothing else."""
                     is_auth_error = True
                 elif "Error code:" in error_msg and "message" in error_msg:
                     # Try to extract just the message part from OpenAI error
-                    try:
+                    try:  # noqa: KBI001 - regex parsing, non-blocking
                         import re
 
                         match = re.search(r"'message': '([^']*)'", error_msg)

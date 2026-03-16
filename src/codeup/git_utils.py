@@ -39,8 +39,8 @@ def _run_git_command(
             if not quiet:
                 print(line, flush=True)
     except KeyboardInterrupt:
-        rp.kill()
         interrupt_main()
+        rp.kill()
         raise
     except TimeoutError as e:
         import traceback
@@ -1388,7 +1388,7 @@ def enhanced_attempt_rebase(target_branch: str) -> RebaseResult:
         logger.info("enhanced_attempt_rebase interrupted by user")
         interrupt_main()
         # Attempt emergency recovery on interrupt
-        try:
+        try:  # noqa: KBI001 - emergency cleanup during interrupt, must attempt rollback
             emergency_rollback(backup_ref)
         except Exception as e:
             logger.warning(f"Emergency rollback failed during interrupt: {e}")

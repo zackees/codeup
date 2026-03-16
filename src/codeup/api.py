@@ -10,6 +10,8 @@ import sys
 from dataclasses import dataclass
 from io import StringIO
 
+from codeup.git_utils import interrupt_main
+
 logger = logging.getLogger(__name__)
 
 
@@ -135,6 +137,7 @@ def lint_test(
 
     except KeyboardInterrupt:
         logger.info("Lint and test interrupted by user")
+        interrupt_main()
         return LintTestResult(
             success=False,
             exit_code=130,  # Standard exit code for SIGINT
