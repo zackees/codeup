@@ -1,9 +1,16 @@
 """Tests for AI commit message generation functionality."""
 
+import shutil
+import subprocess
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
-from codeup.aicommit import AuthException, _opencommit_or_prompt_for_commit_message
+from codeup.aicommit import (
+    AuthException,
+    _generate_ai_commit_message_clud,
+    _opencommit_or_prompt_for_commit_message,
+    _strip_emojis,
+)
 
 
 class TestAICommitNonPTY(unittest.TestCase):
@@ -153,6 +160,161 @@ class TestAICommitNonPTY(unittest.TestCase):
         # Verify error message mentions the unexpected error
         error_message = str(context.exception)
         self.assertIn("unexpected error", error_message.lower())
+
+
+class TestStripEmojis(unittest.TestCase):
+    """Test emoji stripping utility."""
+
+    def test_strips_common_emojis(self):
+        self.assertEqual(_strip_emojis("🎉 feat: add feature"), "feat: add feature")
+
+    def test_strips_multiple_emojis(self):
+        self.assertEqual(
+            _strip_emojis("🔥🚀 fix: resolve bug 🐛"), "fix: resolve bug"
+        )
+
+    def test_preserves_plain_text(self):
+        self.assertEqual(
+            _strip_emojis("chore: update deps"), "chore: update deps"
+        )
+
+    def test_returns_empty_for_only_emojis(self):
+        self.assertEqual(_strip_emojis("🎉🔥🚀"), "")
+
+    def test_strips_flag_emojis(self):
+        self.assertEqual(_strip_emojis("🇺🇸 docs: update readme"), "docs: update readme")
+
+
+@unittest.skipUnless(shutil.which("clud"), "clud not available on this system")
+class TestCludCommitMessageGeneration(unittest.TestCase):
+    """Test clud-based commit message generation (requires clud installed)."""
+
+    def test_clud_generates_commit_message(self):
+        """Test that clud produces a valid conventional commit message from a diff."""
+        diff_text = (
+            "diff --git a/src/app.py b/src/app.py\n"
+            "index 1234567..abcdefg 100644\n"
+            "--- a/src/app.py\n"
+            "+++ b/src/app.py\n"
+            "@@ -10,6 +10,7 @@\n"
+            " def main():\n"
+            "+    logging.basicConfig(level=logging.INFO)\n"
+            "     app.run()\n"
+        )
+        result = _generate_ai_commit_message_clud(diff_text)
+
+        self.assertIsInstance(result, str)
+        self.assertGreater(len(result), 0)
+        # Should be a single line
+        self.assertNotIn("\n", result)
+        # Should be under 72 chars (conventional commit guideline)
+        self.assertLessEqual(len(result), 100)
+        # Should not contain emojis (we strip them)
+        self.assertEqual(result, _strip_emojis(result))
+
+    def test_clud_returns_conventional_format(self):
+        """Test that clud output follows conventional commit type prefix."""
+        diff_text = (
+            "diff --git a/README.md b/README.md\n"
+            "--- a/README.md\n"
+            "+++ b/README.md\n"
+            "@@ -1,3 +1,4 @@\n"
+            " # My Project\n"
+            "+This project does amazing things.\n"
+            " ## Usage\n"
+        )
+        result = _generate_ai_commit_message_clud(diff_text)
+
+        self.assertIsInstance(result, str)
+        valid_types = (
+            "feat", "fix", "docs", "style", "refactor",
+            "perf", "test", "chore", "ci", "build",
+        )
+        has_valid_type = any(result.startswith(t) for t in valid_types)
+        self.assertTrue(
+            has_valid_type,
+            f"Commit message '{result}' does not start with a conventional commit type",
+        )
+
+
+class TestCludCommitMessageUnit(unittest.TestCase):
+    """Unit tests for clud commit message generation (mocked, no clud required)."""
+
+    @patch("codeup.aicommit.shutil.which", return_value=None)
+    def test_returns_none_when_clud_not_found(self, _mock_which):
+        result = _generate_ai_commit_message_clud("some diff")
+        self.assertIsNone(result)
+
+    @patch("codeup.aicommit.subprocess.run")
+    @patch("codeup.aicommit.shutil.which", return_value="/usr/bin/clud")
+    def test_returns_message_on_success(self, _mock_which, mock_run):
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="feat: add logging\n", stderr=""
+        )
+        result = _generate_ai_commit_message_clud("some diff")
+        self.assertEqual(result, "feat: add logging")
+
+    @patch("codeup.aicommit.subprocess.run")
+    @patch("codeup.aicommit.shutil.which", return_value="/usr/bin/clud")
+    def test_strips_emojis_from_output(self, _mock_which, mock_run):
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="🎉 feat: add logging\n", stderr=""
+        )
+        result = _generate_ai_commit_message_clud("some diff")
+        self.assertEqual(result, "feat: add logging")
+
+    @patch("codeup.aicommit.subprocess.run")
+    @patch("codeup.aicommit.shutil.which", return_value="/usr/bin/clud")
+    def test_takes_first_line_only(self, _mock_which, mock_run):
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="feat: add logging\n\nThis adds structured logging.\n",
+            stderr="",
+        )
+        result = _generate_ai_commit_message_clud("some diff")
+        self.assertEqual(result, "feat: add logging")
+
+    @patch("codeup.aicommit.subprocess.run")
+    @patch("codeup.aicommit.shutil.which", return_value="/usr/bin/clud")
+    def test_returns_none_on_nonzero_exit(self, _mock_which, mock_run):
+        mock_run.return_value = MagicMock(
+            returncode=1, stdout="", stderr="error occurred"
+        )
+        result = _generate_ai_commit_message_clud("some diff")
+        self.assertIsNone(result)
+
+    @patch("codeup.aicommit.subprocess.run")
+    @patch("codeup.aicommit.shutil.which", return_value="/usr/bin/clud")
+    def test_returns_none_on_empty_output(self, _mock_which, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        result = _generate_ai_commit_message_clud("some diff")
+        self.assertIsNone(result)
+
+    @patch("codeup.aicommit.subprocess.run")
+    @patch("codeup.aicommit.shutil.which", return_value="/usr/bin/clud")
+    def test_returns_none_on_emoji_only_output(self, _mock_which, mock_run):
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="🎉🔥🚀\n", stderr=""
+        )
+        result = _generate_ai_commit_message_clud("some diff")
+        self.assertIsNone(result)
+
+    @patch("codeup.aicommit.subprocess.run", side_effect=subprocess.TimeoutExpired("clud", 120))
+    @patch("codeup.aicommit.shutil.which", return_value="/usr/bin/clud")
+    def test_returns_none_on_timeout(self, _mock_which, _mock_run):
+        result = _generate_ai_commit_message_clud("some diff")
+        self.assertIsNone(result)
+
+    @patch("codeup.aicommit.subprocess.run")
+    @patch("codeup.aicommit.shutil.which", return_value="/usr/bin/clud")
+    def test_passes_diff_in_prompt(self, _mock_which, mock_run):
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="fix: patch bug\n", stderr=""
+        )
+        _generate_ai_commit_message_clud("my special diff content")
+        args = mock_run.call_args
+        prompt_arg = args[0][0][2]  # ["clud", "-p", <prompt>]
+        self.assertIn("my special diff content", prompt_arg)
 
 
 if __name__ == "__main__":

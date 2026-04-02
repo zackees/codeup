@@ -39,6 +39,112 @@ class AuthException(Exception):
         return "\n".join(lines)
 
 
+def _strip_emojis(text: str) -> str:
+    """Remove emoji characters from text."""
+    import re
+
+    emoji_pattern = re.compile(
+        "["
+        "\U0001F600-\U0001F64F"  # emoticons
+        "\U0001F300-\U0001F5FF"  # symbols & pictographs
+        "\U0001F680-\U0001F6FF"  # transport & map symbols
+        "\U0001F1E0-\U0001F1FF"  # flags
+        "\U00002702-\U000027B0"  # dingbats
+        "\U000024C2-\U0001F251"  # enclosed characters
+        "\U0001F926-\U0001F937"  # supplemental
+        "\U00010000-\U0010FFFF"  # supplemental symbols
+        "\u2640-\u2642"
+        "\u2600-\u2B55"
+        "\u200D"
+        "\u23CF"
+        "\u23E9"
+        "\u231A"
+        "\uFE0F"
+        "\u3030"
+        "]+",
+        flags=re.UNICODE,
+    )
+    return emoji_pattern.sub("", text).strip()
+
+
+def _generate_ai_commit_message_clud(diff_text: str) -> str | None:
+    """Generate commit message using clud (Claude Code) as last-resort fallback.
+
+    Returns:
+        str: Successfully generated commit message
+        None: clud not available or generation failed
+    """
+    import shutil
+
+    if not shutil.which("clud"):
+        logger.info("clud not found in PATH")
+        return None
+
+    try:
+        import subprocess
+
+        from codeup.console import info, success
+
+        info("Trying clud as last-resort fallback for commit message generation")
+
+        prompt = (
+            "You are an expert developer who writes clear, concise commit messages "
+            "following conventional commit format.\n\n"
+            "Analyze the following git diff and generate a single line commit message that:\n"
+            "1. Follows conventional commit format (type(scope): description)\n"
+            "2. Uses one of these types: feat, fix, docs, style, refactor, perf, test, chore, ci, build\n"
+            "3. Is under 72 characters\n"
+            "4. Describes the main change concisely\n"
+            "5. Uses imperative mood (e.g., \"add\", not \"added\")\n"
+            "6. Do NOT use any emojis\n\n"
+            f"Git diff:\n```\n{diff_text}\n```\n\n"
+            "Respond with only the commit message, nothing else."
+        )
+
+        result = subprocess.run(
+            ["clud", "-p", prompt],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+
+        if result.returncode != 0:
+            logger.warning(
+                f"clud exited with code {result.returncode}: {result.stderr}"
+            )
+            return None
+
+        commit_message = result.stdout.strip()
+        if not commit_message:
+            logger.warning("clud returned empty output")
+            return None
+
+        # Strip emojis from the output
+        commit_message = _strip_emojis(commit_message)
+        if not commit_message:
+            logger.warning("clud output was only emojis")
+            return None
+
+        # Take only the first line
+        commit_message = commit_message.split("\n")[0].strip()
+
+        success(f"Generated clud commit message: {commit_message[:50]}...")
+        return commit_message
+
+    except KeyboardInterrupt:
+        logger.info("_generate_ai_commit_message_clud interrupted by user")
+        from codeup.git_utils import interrupt_main
+
+        interrupt_main()
+        raise
+    except subprocess.TimeoutExpired:
+        logger.warning("clud timed out after 120 seconds")
+        return None
+    except Exception as e:
+        logger.error(f"Failed to generate clud commit message: {e}")
+        return None
+
+
 def _generate_ai_commit_message_anthropic(
     diff_text: str,
 ) -> str | AuthException | None:
@@ -265,7 +371,12 @@ Respond with only the commit message, nothing else."""
             # None - other failure (network, etc.)
             logger.warning("Anthropic generation failed with non-auth error")
 
-        # Both providers failed - determine if it's an auth issue
+        # Both API providers failed - try clud as last-resort fallback
+        clud_result = _generate_ai_commit_message_clud(diff_text)
+        if isinstance(clud_result, str):
+            return clud_result
+
+        # All providers failed - determine if it's an auth issue
         if openai_auth_error and anthropic_auth_error:
             # Both providers have auth issues
             combined_msg = (
