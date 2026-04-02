@@ -998,6 +998,9 @@ def main() -> int:
             _thread.interrupt_main()
             set_interrupted()  # Ensure flag is set
             result[0] = 1
+        except SystemExit as e:
+            logger.info(f"Worker thread exited with code {e.code}")
+            result[0] = e.code if isinstance(e.code, int) else 1
         except Exception as e:
             logger.error(f"Worker thread failed: {e}")
             result[0] = 1

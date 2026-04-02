@@ -147,6 +147,18 @@ def lint_test(
             stderr=stderr_capture.getvalue(),
             error_message="Interrupted by user",
         )
+    except SystemExit as e:
+        code = e.code if isinstance(e.code, int) else 1
+        logger.info(f"Lint and test exited with code {code}")
+        return LintTestResult(
+            success=(code == 0),
+            exit_code=code,
+            lint_passed=None,
+            test_passed=None,
+            stdout=stdout_capture.getvalue(),
+            stderr=stderr_capture.getvalue(),
+            error_message=f"Process exited with code {code}" if code != 0 else None,
+        )
     except Exception as e:
         logger.error(f"Unexpected error during lint and test: {e}")
         return LintTestResult(

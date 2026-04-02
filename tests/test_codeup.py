@@ -78,6 +78,10 @@ class CodeupTester(unittest.TestCase):
             with (
                 patch("codeup.config.get_openai_api_key", return_value=None),
                 patch("codeup.config.get_anthropic_api_key", return_value=None),
+                patch(
+                    "codeup.aicommit._generate_ai_commit_message_clud",
+                    return_value=None,
+                ),
             ):
                 try:
                     result = codeup_main()

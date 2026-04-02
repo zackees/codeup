@@ -45,26 +45,71 @@ def _strip_emojis(text: str) -> str:
 
     emoji_pattern = re.compile(
         "["
-        "\U0001F600-\U0001F64F"  # emoticons
-        "\U0001F300-\U0001F5FF"  # symbols & pictographs
-        "\U0001F680-\U0001F6FF"  # transport & map symbols
-        "\U0001F1E0-\U0001F1FF"  # flags
-        "\U00002702-\U000027B0"  # dingbats
-        "\U000024C2-\U0001F251"  # enclosed characters
-        "\U0001F926-\U0001F937"  # supplemental
-        "\U00010000-\U0010FFFF"  # supplemental symbols
+        "\U0001f600-\U0001f64f"  # emoticons
+        "\U0001f300-\U0001f5ff"  # symbols & pictographs
+        "\U0001f680-\U0001f6ff"  # transport & map symbols
+        "\U0001f1e0-\U0001f1ff"  # flags
+        "\U00002702-\U000027b0"  # dingbats
+        "\U000024c2-\U0001f251"  # enclosed characters
+        "\U0001f926-\U0001f937"  # supplemental
+        "\U00010000-\U0010ffff"  # supplemental symbols
         "\u2640-\u2642"
-        "\u2600-\u2B55"
-        "\u200D"
-        "\u23CF"
-        "\u23E9"
-        "\u231A"
-        "\uFE0F"
+        "\u2600-\u2b55"
+        "\u200d"
+        "\u23cf"
+        "\u23e9"
+        "\u231a"
+        "\ufe0f"
         "\u3030"
         "]+",
         flags=re.UNICODE,
     )
     return emoji_pattern.sub("", text).strip()
+
+
+def _clean_clud_output(raw_output: str) -> str | None:
+    """Clean clud output by removing metadata, emojis, and code fences.
+
+    clud output typically looks like:
+        💬 feat(scope): description
+        📊 tokens: 4
+    or sometimes wraps in code fences:
+        💬 ```
+        feat(scope): description
+        ```
+        📊 tokens: 4
+
+    Returns:
+        str: Cleaned commit message, or None if nothing useful remains.
+    """
+    # Remove clud metadata lines (📊 tokens: N)
+    lines = [
+        line
+        for line in raw_output.split("\n")
+        if not line.strip().startswith("\U0001f4ca")  # 📊
+    ]
+    text = "\n".join(lines).strip()
+
+    # Strip emojis (e.g. 💬 prefix)
+    text = _strip_emojis(text)
+    if not text:
+        logger.warning("clud output was only emojis or metadata")
+        return None
+
+    # Remove markdown code fences
+    text = text.replace("```", "").strip()
+    if not text:
+        logger.warning("clud output was only code fences")
+        return None
+
+    # Take only the first non-empty line
+    for line in text.split("\n"):
+        line = line.strip()
+        if line:
+            return line
+
+    logger.warning("clud output had no usable content")
+    return None
 
 
 def _generate_ai_commit_message_clud(diff_text: str) -> str | None:
@@ -87,24 +132,22 @@ def _generate_ai_commit_message_clud(diff_text: str) -> str | None:
 
         info("Trying clud as last-resort fallback for commit message generation")
 
+        # clud -p requires a single-line prompt (newlines cause empty output).
+        # Flatten the diff so it can be passed inline.
+        flat_diff = diff_text.replace("\n", "\\n")
         prompt = (
-            "You are an expert developer who writes clear, concise commit messages "
-            "following conventional commit format.\n\n"
-            "Analyze the following git diff and generate a single line commit message that:\n"
-            "1. Follows conventional commit format (type(scope): description)\n"
-            "2. Uses one of these types: feat, fix, docs, style, refactor, perf, test, chore, ci, build\n"
-            "3. Is under 72 characters\n"
-            "4. Describes the main change concisely\n"
-            "5. Uses imperative mood (e.g., \"add\", not \"added\")\n"
-            "6. Do NOT use any emojis\n\n"
-            f"Git diff:\n```\n{diff_text}\n```\n\n"
-            "Respond with only the commit message, nothing else."
+            "Write a conventional commit message (type(scope): description) for "
+            "this git diff. Use types: feat, fix, docs, style, refactor, perf, "
+            "test, chore, ci, build. Under 72 chars. Imperative mood. No emojis. "
+            "Only the message, nothing else. "
+            f"Diff: {flat_diff}"
         )
 
         result = subprocess.run(
             ["clud", "-p", prompt],
             capture_output=True,
             text=True,
+            encoding="utf-8",
             timeout=120,
         )
 
@@ -119,14 +162,9 @@ def _generate_ai_commit_message_clud(diff_text: str) -> str | None:
             logger.warning("clud returned empty output")
             return None
 
-        # Strip emojis from the output
-        commit_message = _strip_emojis(commit_message)
+        commit_message = _clean_clud_output(commit_message)
         if not commit_message:
-            logger.warning("clud output was only emojis")
             return None
-
-        # Take only the first line
-        commit_message = commit_message.split("\n")[0].strip()
 
         success(f"Generated clud commit message: {commit_message[:50]}...")
         return commit_message
