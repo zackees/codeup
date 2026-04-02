@@ -132,19 +132,16 @@ def _generate_ai_commit_message_clud(diff_text: str) -> str | None:
 
         info("Trying clud as last-resort fallback for commit message generation")
 
-        # clud -p requires a single-line prompt (newlines cause empty output).
-        # Flatten the diff so it can be passed inline.
-        flat_diff = diff_text.replace("\n", "\\n")
         prompt = (
             "Write a conventional commit message (type(scope): description) for "
-            "this git diff. Use types: feat, fix, docs, style, refactor, perf, "
-            "test, chore, ci, build. Under 72 chars. Imperative mood. No emojis. "
-            "Only the message, nothing else. "
-            f"Diff: {flat_diff}"
+            "the git diff provided on stdin. Use types: feat, fix, docs, style, "
+            "refactor, perf, test, chore, ci, build. Under 72 chars. Imperative "
+            "mood. No emojis. Only the message, nothing else."
         )
 
         result = subprocess.run(
             ["clud", "-p", prompt],
+            input=diff_text,
             capture_output=True,
             text=True,
             encoding="utf-8",

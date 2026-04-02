@@ -386,28 +386,24 @@ class TestCludCommitMessageUnit(unittest.TestCase):
 
     @patch("subprocess.run")
     @patch("shutil.which", return_value="/usr/bin/clud")
-    def test_passes_diff_in_prompt(self, _mock_which, mock_run):
+    def test_passes_diff_via_stdin(self, _mock_which, mock_run):
         mock_run.return_value = MagicMock(
             returncode=0, stdout="fix: patch bug\n", stderr=""
         )
         _generate_ai_commit_message_clud("my special diff content")
         args = mock_run.call_args
-        prompt_arg = args[0][0][2]  # ["clud", "-p", <prompt>]
-        self.assertIn("my special diff content", prompt_arg)
+        self.assertEqual(args.kwargs["input"], "my special diff content")
 
     @patch("subprocess.run")
     @patch("shutil.which", return_value="/usr/bin/clud")
-    def test_flattens_diff_newlines(self, _mock_which, mock_run):
-        """Test that newlines in diff are escaped for single-line prompt."""
+    def test_preserves_diff_newlines_in_stdin(self, _mock_which, mock_run):
+        """Test that diff newlines are preserved when passed via stdin."""
         mock_run.return_value = MagicMock(
             returncode=0, stdout="feat: add feature\n", stderr=""
         )
         _generate_ai_commit_message_clud("line1\nline2\nline3")
         args = mock_run.call_args
-        prompt_arg = args[0][0][2]  # ["clud", "-p", <prompt>]
-        # The prompt should not contain literal newlines (only escaped \\n)
-        self.assertNotIn("\nline2", prompt_arg)
-        self.assertIn("line1\\nline2\\nline3", prompt_arg)
+        self.assertEqual(args.kwargs["input"], "line1\nline2\nline3")
 
 
 if __name__ == "__main__":
