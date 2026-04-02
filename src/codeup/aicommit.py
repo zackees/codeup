@@ -434,8 +434,16 @@ def _opencommit_or_prompt_for_commit_message(
             input_thread = threading.Thread(target=get_input, daemon=True)
             input_thread.start()
 
-            # Wait for either input or timeout
-            input_thread.join(timeout=timeout_seconds)
+            # Poll with short joins so we can respond to Ctrl+C quickly
+            import time
+
+            from codeup.utils import is_interrupted
+
+            deadline = time.time() + timeout_seconds
+            while input_thread.is_alive() and time.time() < deadline:
+                input_thread.join(timeout=0.2)
+                if is_interrupted():
+                    raise KeyboardInterrupt("Process interrupted")
 
             if input_thread.is_alive():
                 # Timeout occurred

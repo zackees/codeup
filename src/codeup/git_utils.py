@@ -38,6 +38,13 @@ def _run_git_command(
                 stdout_lines.append(line)
             if not quiet:
                 print(line, flush=True)
+
+            # Check if process was interrupted by Ctrl+C
+            from codeup.utils import is_interrupted
+
+            if is_interrupted():
+                rp.kill()
+                raise KeyboardInterrupt("Process interrupted")
     except KeyboardInterrupt:
         interrupt_main()
         rp.kill()

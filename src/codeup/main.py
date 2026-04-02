@@ -182,6 +182,13 @@ def _run_command_streaming(
             # Update activity tracker when we receive output
             if _activity_tracker is not None:
                 _activity_tracker[0] = time.time()
+
+            # Check if process was interrupted by Ctrl+C
+            from codeup.utils import is_interrupted
+
+            if is_interrupted():
+                rp.kill()
+                raise KeyboardInterrupt("Process interrupted")
     except KeyboardInterrupt:
         from codeup.git_utils import interrupt_main
 
@@ -1001,9 +1008,10 @@ def main() -> int:
     )
     timeout_thread.start()
 
-    # Start the main worker in a separate thread (not daemon - we want to wait for it)
+    # Start the main worker as a daemon thread so the process can exit on Ctrl+C
+    # The main thread's polling loop ensures we wait for it during normal operation
     worker_thread = threading.Thread(
-        target=worker_wrapper, name="MainWorker", daemon=False
+        target=worker_wrapper, name="MainWorker", daemon=True
     )
     worker_thread.start()
 
@@ -1018,12 +1026,14 @@ def main() -> int:
         set_interrupted()  # Signal worker thread to stop
         print("Aborting", file=sys.stderr)
         # Wait briefly for worker to notice interrupt and exit cleanly
-        # Wrap in try/except because multiple _thread.interrupt_main() calls
-        # can queue additional KeyboardInterrupt exceptions
         try:
-            worker_thread.join(timeout=0.5)
+            worker_thread.join(timeout=1.0)
         except KeyboardInterrupt:
             _thread.interrupt_main()
+        # Force exit if worker thread is still alive (daemon thread won't block,
+        # but os._exit ensures immediate termination of any lingering subprocesses)
+        if worker_thread.is_alive():
+            os._exit(1)
         return 1
 
 

@@ -50,6 +50,13 @@ def run_command_with_callback(
             # Stream to stdout
             print(line, flush=True)
 
+            # Check if process was interrupted by Ctrl+C
+            from codeup.utils import is_interrupted
+
+            if is_interrupted():
+                rp.kill()
+                raise KeyboardInterrupt("Process interrupted")
+
             # Call callback if provided
             if on_line is not None:
                 try:

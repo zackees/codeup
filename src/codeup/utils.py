@@ -150,8 +150,14 @@ def input_with_timeout(prompt: str, timeout_seconds: int = 300) -> str:
     input_thread = threading.Thread(target=get_input, daemon=True)
     input_thread.start()
 
-    # Wait for either input or timeout
-    input_thread.join(timeout=timeout_seconds)
+    # Poll with short joins so we can respond to Ctrl+C quickly
+    import time
+
+    deadline = time.time() + timeout_seconds
+    while input_thread.is_alive() and time.time() < deadline:
+        input_thread.join(timeout=0.2)
+        if is_interrupted():
+            raise KeyboardInterrupt("Process interrupted")
 
     if input_thread.is_alive():
         # Timeout occurred
@@ -317,14 +323,19 @@ def _exec(cmd: str, bash: bool, die=True) -> int:
         ):  # 10 minute timeout for long operations
             print(line, flush=True)
 
+            # Check if process was interrupted by Ctrl+C
+            if is_interrupted():
+                rp.kill()
+                raise KeyboardInterrupt("Process interrupted")
+
         rp.wait()
         rtn = rp.returncode or 0
     except KeyboardInterrupt:
         logger.info("_exec interrupted by user")
-        rp.kill()
         from codeup.git_utils import interrupt_main
 
         interrupt_main()
+        rp.kill()
         raise
     except TimeoutError as e:
         import traceback
