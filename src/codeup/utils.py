@@ -437,6 +437,70 @@ def get_answer_yes_or_no(question: str, default: bool | str = "y") -> bool:
             return result
 
 
+def get_answer_with_choices(
+    question: str,
+    choices: list[str],
+    default: str,
+) -> str:
+    """Ask a question with explicit choices and return the selected option key."""
+    if is_interrupted():
+        logger.info("get_answer_with_choices: process already interrupted, raising")
+        raise KeyboardInterrupt("Process interrupted")
+
+    normalized_choices = [choice.lower().strip() for choice in choices]
+    normalized_default = default.lower().strip()
+    if normalized_default not in normalized_choices:
+        raise ValueError(
+            f"Default choice '{default}' must be one of {normalized_choices}"
+        )
+
+    aliases: dict[str, str] = {choice: choice for choice in normalized_choices}
+    if "y" in aliases:
+        aliases["yes"] = "y"
+    if "n" in aliases:
+        aliases["no"] = "n"
+    if "r" in aliases:
+        aliases["remove"] = "r"
+    if "k" in aliases:
+        aliases["keep"] = "k"
+    if "a" in aliases:
+        aliases["add"] = "a"
+
+    prompt = f"{question} [{'/'.join(normalized_choices)}]: "
+
+    if not sys.stdin.isatty():
+        print(
+            f"{question} [{'/'.join(normalized_choices)}]: {normalized_default} (auto-selected, no stdin)"
+        )
+        return normalized_default
+
+    while True:
+        try:
+            answer = input_with_timeout(prompt, timeout_seconds=300).lower().strip()
+            if answer == "":
+                return normalized_default
+            if answer in aliases:
+                return aliases[answer]
+            print(f"Please answer with one of: {', '.join(normalized_choices)}.")
+        except KeyboardInterrupt:
+            from codeup.git_utils import interrupt_main
+
+            interrupt_main()
+            raise
+        except (EOFError, InputTimeoutError) as e:
+            if is_interrupted():
+                logger.info(
+                    "Choice input failed during shutdown, raising KeyboardInterrupt"
+                )
+                raise KeyboardInterrupt("Process interrupted") from e
+
+            logger.warning(f"Input failed for choice question: {e}")
+            print(
+                f"\nInput failed or timed out ({type(e).__name__}), using default: {normalized_default}"
+            )
+            return normalized_default
+
+
 def configure_logging(enable_file_logging: bool) -> None:
     """Configure logging based on whether file logging should be enabled."""
     handlers: list[logging.Handler] = [logging.StreamHandler(sys.stderr)]

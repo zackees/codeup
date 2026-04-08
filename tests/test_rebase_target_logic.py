@@ -1,14 +1,12 @@
 """Test the corrected rebase target logic for feature branches."""
 
+import importlib
 import unittest
 from unittest.mock import patch
 
-from codeup.git_utils import (
-    enhanced_attempt_rebase,
-    get_upstream_branch,
-    git_push,
-    safe_rebase_try,
-)
+
+def _git_utils():
+    return importlib.import_module("codeup.git_utils")
 
 
 class RebaseTargetLogicTester(unittest.TestCase):
@@ -20,7 +18,7 @@ class RebaseTargetLogicTester(unittest.TestCase):
             # Mock successful upstream detection
             mock_run.return_value = (0, "origin/feature-xyz", "")
 
-            result = get_upstream_branch()
+            result = _git_utils().get_upstream_branch()
 
             self.assertEqual(result, "origin/feature-xyz")
             mock_run.assert_called_once_with(
@@ -34,7 +32,7 @@ class RebaseTargetLogicTester(unittest.TestCase):
             # Mock no upstream (command fails)
             mock_run.return_value = (1, "", "fatal: no upstream configured")
 
-            result = get_upstream_branch()
+            result = _git_utils().get_upstream_branch()
 
             self.assertEqual(result, "")
 
@@ -60,7 +58,7 @@ class RebaseTargetLogicTester(unittest.TestCase):
         mock_attempt_rebase.return_value = (True, False)  # success, no conflicts
 
         with patch("builtins.print") as mock_print:
-            result = safe_rebase_try()
+            result = _git_utils().safe_rebase_try()
 
         # Verify it used the upstream branch, not main
         self.assertTrue(result)
@@ -95,7 +93,7 @@ class RebaseTargetLogicTester(unittest.TestCase):
         mock_attempt_rebase.return_value = (True, False)  # success, no conflicts
 
         with patch("builtins.print") as mock_print:
-            result = safe_rebase_try()
+            result = _git_utils().safe_rebase_try()
 
         # Verify it fell back to main branch
         self.assertTrue(result)
@@ -126,7 +124,7 @@ class RebaseTargetLogicTester(unittest.TestCase):
         mock_get_upstream_branch.return_value = ""  # No upstream
         mock_get_main_branch.return_value = "main"
 
-        result = safe_rebase_try()
+        result = _git_utils().safe_rebase_try()
 
         # Should return True immediately without attempting rebase
         self.assertTrue(result)
@@ -146,7 +144,7 @@ class RebaseTargetLogicTester(unittest.TestCase):
         mock_run.return_value = (0, "", "")  # Successful push
 
         with patch("builtins.print") as mock_print:
-            success, error = git_push()
+            success, error = _git_utils().git_push()
 
         # Verify it used --set-upstream
         self.assertTrue(success)
@@ -173,7 +171,7 @@ class RebaseTargetLogicTester(unittest.TestCase):
         mock_get_upstream_branch.return_value = "origin/feature-xyz"  # Has upstream
         mock_run.return_value = (0, "", "")  # Successful push
 
-        success, error = git_push()
+        success, error = _git_utils().git_push()
 
         # Verify it used normal push
         self.assertTrue(success)
@@ -201,7 +199,7 @@ class RebaseTargetLogicTester(unittest.TestCase):
             mock_verify_success.return_value = True
 
             # Test with feature branch target
-            result = enhanced_attempt_rebase("feature-xyz")
+            result = _git_utils().enhanced_attempt_rebase("feature-xyz")
 
         # Verify it attempted rebase with correct target
         self.assertTrue(result.success)
@@ -243,7 +241,7 @@ class RebaseTargetLogicTester(unittest.TestCase):
             mock_verify_success.return_value = True
 
             # Test with target that already has origin/ prefix
-            result = enhanced_attempt_rebase("origin/feature-xyz")
+            result = _git_utils().enhanced_attempt_rebase("origin/feature-xyz")
 
         # Verify it didn't double the origin/ prefix
         self.assertTrue(result.success)

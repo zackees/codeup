@@ -5,11 +5,12 @@ Runs:
   * else
     * if ./lint exists, then run it
     * if ./test exists, then run it
-    * git add .
+    * git add selected tracked files
     * AI-generated commit message (via OpenAI/Anthropic)
 """
 
 import _thread
+import hashlib
 import logging
 import os
 import sys
@@ -17,6 +18,7 @@ import threading
 import time
 import traceback
 from dataclasses import dataclass
+from pathlib import Path
 
 from running_process import RunningProcess
 from running_process.output_formatter import NullOutputFormatter
@@ -28,6 +30,8 @@ from codeup.git_utils import (
     check_rebase_needed,
     enhanced_attempt_rebase,
     get_current_branch,
+    get_git_diff,
+    get_git_diff_cached,
     get_main_branch,
     get_staged_files,
     get_unpushed_commit_files,
@@ -35,10 +39,11 @@ from codeup.git_utils import (
     get_untracked_files,
     get_upstream_branch,
     git_add_all,
-    git_add_file,
+    git_add_files,
     git_fetch,
     has_modified_tracked_files,
     has_unpushed_commits,
+    interactive_add_untracked_files,
     safe_push,
 )
 from codeup.keyring import (
@@ -54,7 +59,6 @@ from codeup.utils import (
     _to_exec_str,
     check_environment,
     configure_logging,
-    format_filename_with_warning,
     get_answer_yes_or_no,
     is_uv_project,
     set_interrupted,
@@ -62,6 +66,144 @@ from codeup.utils import (
 
 # Logger will be configured in main() based on --log flag
 logger = logging.getLogger(__name__)
+
+
+def _selected_commit_provider(args: Args) -> str | None:
+    """Return the forced commit-generation backend, if any."""
+    if args.codex:
+        return "codex"
+    if args.claude:
+        return "claude"
+    return None
+
+
+def _stage_selected_changes(unstaged_files: list[str]) -> int:
+    """Stage only the tracked files codeup intends to commit."""
+    return git_add_files(unstaged_files)
+
+
+@dataclass(frozen=True)
+class WorktreeSnapshot:
+    """Worktree state captured before and after validation commands."""
+
+    staged_files: list[str]
+    unstaged_files: list[str]
+    untracked_files: list[str]
+    staged_diff: str
+    unstaged_diff: str
+    untracked_hashes: dict[str, str]
+
+
+def _hash_untracked_file(path: str) -> str:
+    """Hash an untracked file so unexpected content changes can be detected."""
+    target = Path(path)
+    if not target.exists():
+        return "<missing>"
+    if target.is_dir():
+        return "<dir>"
+
+    hasher = hashlib.sha256()
+    with target.open("rb") as f:
+        while True:
+            chunk = f.read(65536)
+            if not chunk:
+                break
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
+def _capture_worktree_snapshot() -> WorktreeSnapshot:
+    """Capture the current worktree state for validation drift detection."""
+    untracked_files = get_untracked_files()
+    return WorktreeSnapshot(
+        staged_files=get_staged_files(),
+        unstaged_files=get_unstaged_files(),
+        untracked_files=untracked_files,
+        staged_diff=get_git_diff_cached(),
+        unstaged_diff=get_git_diff(),
+        untracked_hashes={path: _hash_untracked_file(path) for path in untracked_files},
+    )
+
+
+def _describe_unexpected_worktree_changes(
+    before: WorktreeSnapshot, after: WorktreeSnapshot
+) -> list[str]:
+    """Return human-readable changes introduced during lint/test validation."""
+    details: list[str] = []
+
+    before_untracked = set(before.untracked_files)
+    after_untracked = set(after.untracked_files)
+    added_untracked = sorted(after_untracked - before_untracked)
+    removed_untracked = sorted(before_untracked - after_untracked)
+    modified_untracked = sorted(
+        path
+        for path in before_untracked & after_untracked
+        if before.untracked_hashes.get(path) != after.untracked_hashes.get(path)
+    )
+
+    before_staged = set(before.staged_files)
+    after_staged = set(after.staged_files)
+    if added_untracked:
+        details.append(
+            "New untracked files appeared during lint/test: "
+            + ", ".join(added_untracked)
+        )
+    if removed_untracked:
+        details.append(
+            "Previously known untracked files disappeared during lint/test: "
+            + ", ".join(removed_untracked)
+        )
+    if modified_untracked:
+        details.append(
+            "Untracked file contents changed during lint/test: "
+            + ", ".join(modified_untracked)
+        )
+
+    added_staged = sorted(after_staged - before_staged)
+    removed_staged = sorted(before_staged - after_staged)
+    if added_staged:
+        details.append(
+            "New staged files appeared during lint/test: " + ", ".join(added_staged)
+        )
+    if removed_staged:
+        details.append(
+            "Previously staged files disappeared during lint/test: "
+            + ", ".join(removed_staged)
+        )
+    if before.staged_diff != after.staged_diff:
+        details.append("The staged diff changed during lint/test.")
+
+    before_unstaged = set(before.unstaged_files)
+    after_unstaged = set(after.unstaged_files)
+    added_unstaged = sorted(after_unstaged - before_unstaged)
+    removed_unstaged = sorted(before_unstaged - after_unstaged)
+    if added_unstaged:
+        details.append(
+            "New modified tracked files appeared during lint/test: "
+            + ", ".join(added_unstaged)
+        )
+    if removed_unstaged:
+        details.append(
+            "Previously modified tracked files disappeared during lint/test: "
+            + ", ".join(removed_unstaged)
+        )
+    if before.unstaged_diff != after.unstaged_diff:
+        details.append("The unstaged tracked diff changed during lint/test.")
+
+    return details
+
+
+def _report_unexpected_worktree_changes(details: list[str]) -> None:
+    """Report a major red error when lint/test changes the repository unexpectedly."""
+    error("")
+    error("MAJOR ERROR: Repository files changed during lint/test.")
+    error("Codeup determines the commit set before validation runs.")
+    error(
+        "Lint/test then changed the worktree unexpectedly, so commit and push were aborted."
+    )
+    for detail in details:
+        error(f"  - {detail}")
+    error("Review these changes manually, then rerun codeup.")
 
 
 @dataclass
@@ -118,6 +260,13 @@ _activity_tracker = None
 # Global command context for timeout diagnostics
 _current_command_context = None
 
+_TIMEOUT_MONITORED_PHASES = {
+    "LINTING",
+    "TESTING",
+    "DRY_RUN_LINT",
+    "DRY_RUN_TEST",
+}
+
 
 def _set_activity_tracker(tracker):
     """Set the global activity tracker."""
@@ -135,6 +284,14 @@ def _clear_current_command_context():
     """Clear current command context."""
     global _current_command_context
     _current_command_context = None
+
+
+def _is_timeout_monitored_phase() -> bool:
+    """Return True when the watchdog should monitor for stale output."""
+    return (
+        _current_command_context is not None
+        and _current_command_context.phase in _TIMEOUT_MONITORED_PHASES
+    )
 
 
 def _run_command_streaming(
@@ -419,7 +576,10 @@ def _main_worker() -> int:
             # Just run the AI commit workflow
             git_add_all()
             ai_commit_or_prompt_for_commit_message(
-                args.no_autoaccept, args.message, no_interactive=False
+                args.no_autoaccept,
+                args.message,
+                no_interactive=False,
+                provider=_selected_commit_provider(args),
             )
             return 0
         except KeyboardInterrupt:
@@ -492,47 +652,26 @@ def _main_worker() -> int:
             has_untracked = len(untracked_files) > 0
 
         if has_untracked:
-            # Check if running as subprocess (not in PTY) - if so, require all files to be staged
-            if not sys.stdin.isatty():
-                error("Untracked files detected when running as subprocess")
-                error("All files must be staged before running codeup as a subprocess")
-                error(
-                    "Please stage these files with 'git add' or run codeup interactively"
-                )
+            result = interactive_add_untracked_files(
+                is_tty=sys.stdin.isatty(),
+                pre_test_mode=args.pre_test,
+                no_interactive=args.no_interactive,
+            )
+            if not result.success:
                 return 1
-            if args.pre_test:
-                # In pre-test mode, error out if there are untracked files
-                # This prevents blocking when codeup is called as a subcommand
-                error("Untracked files detected in pre-test mode")
-                error("Pre-test mode requires all files to be tracked before running")
-                error(
-                    "Please add these files to git or run codeup without --pre-test flag"
-                )
-                return 1
-            elif args.no_interactive:
-                # In non-interactive mode, automatically add all untracked files
-                info("Non-interactive mode: automatically adding all untracked files")
-                for untracked_file in untracked_files:
-                    formatted_name = format_filename_with_warning(untracked_file)
-                    info(f"  Adding {formatted_name}")
-                    git_add_file(untracked_file)
-            else:
-                answer_yes = get_answer_yes_or_no("Continue?", "y")
-                if not answer_yes:
-                    warning("Aborting")
-                    return 1
-                for untracked_file in untracked_files:
-                    formatted_name = format_filename_with_warning(untracked_file)
-                    answer_yes = get_answer_yes_or_no(f"  Add {formatted_name}?", "y")
-                    if answer_yes:
-                        git_add_file(untracked_file)
-                    else:
-                        info(f"  Skipping {formatted_name}")
+
+            staged_files = get_staged_files()
+            unstaged_files = get_unstaged_files()
+            untracked_files = get_untracked_files()
+            has_changes = bool(staged_files or unstaged_files or untracked_files)
 
         # If pre-test mode and we've gotten this far, all files are tracked - exit successfully
         if args.pre_test:
             success("Pre-test check passed: all files are tracked")
             return 0
+
+        validation_snapshot = _capture_worktree_snapshot() if has_changes else None
+        ran_validation_commands = False
 
         if os.path.exists("./lint") and not args.no_lint:
             print(LINTING_BANNER, end="")
@@ -559,6 +698,7 @@ def _main_worker() -> int:
                     output_formatter=TimestampOutputFormatter(),
                     phase="LINTING",
                 )
+                ran_validation_commands = True
 
                 # Check captured output for dependency resolution issues
                 output_text = stdout + stderr
@@ -632,6 +772,7 @@ def _main_worker() -> int:
                     output_formatter=TimestampOutputFormatter(),
                     phase="TESTING",
                 )
+                ran_validation_commands = True
                 if rtn != 0:
                     error("Tests failed.")
                     sys.exit(1)
@@ -647,6 +788,16 @@ def _main_worker() -> int:
                 error(f"Testing error: {e}")
                 sys.exit(1)
 
+        if ran_validation_commands and validation_snapshot is not None:
+            current_snapshot = _capture_worktree_snapshot()
+            unexpected_changes = _describe_unexpected_worktree_changes(
+                validation_snapshot,
+                current_snapshot,
+            )
+            if unexpected_changes:
+                _report_unexpected_worktree_changes(unexpected_changes)
+                return 1
+
         # Handle git add and commit based on whether we have changes
         if has_changes:
             # Check if there are modified tracked files BEFORE git add
@@ -654,13 +805,17 @@ def _main_worker() -> int:
             # modified tracked files and newly added untracked files
             should_commit = has_modified_tracked_files()
 
-            _exec("git add .", bash=False)
+            if _stage_selected_changes(unstaged_files) != 0:
+                return 1
 
             # Only create a commit if there were modified tracked files before git add
             # (i.e., don't commit if only untracked files were added)
             if should_commit:
                 ai_commit_or_prompt_for_commit_message(
-                    args.no_autoaccept, args.message, args.no_interactive
+                    args.no_autoaccept,
+                    args.message,
+                    args.no_interactive,
+                    provider=_selected_commit_provider(args),
                 )
             else:
                 info(
@@ -937,6 +1092,10 @@ def main() -> int:
         warned = False
         while True:
             time.sleep(60)  # Check every minute
+
+            if not _is_timeout_monitored_phase():
+                warned = False
+                continue
 
             current_time = time.time()
             time_since_last_activity = current_time - last_activity_time[0]

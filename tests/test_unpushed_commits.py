@@ -263,6 +263,34 @@ class UnpushedCommitsTest(unittest.TestCase):
             if src_path in sys.path:
                 sys.path.remove(src_path)
 
+    def test_has_modified_tracked_files_staged_new_file_only(self):
+        """Test staged additions alone do not count as tracked modifications."""
+        import sys
+
+        src_path = str(Path(self.original_cwd) / "src")
+        sys.path.insert(0, src_path)
+
+        try:
+            from codeup.git_utils import has_modified_tracked_files
+
+            with open("new_only.txt", "w") as f:
+                f.write("new content")
+            subprocess.run(
+                ["git", "add", "new_only.txt"], check=True, capture_output=True
+            )
+
+            result = has_modified_tracked_files()
+            self.assertFalse(
+                result,
+                "Should return False when the index only contains newly added files",
+            )
+
+        except ImportError as e:
+            self.skipTest(f"Could not import required modules: {e}")
+        finally:
+            if src_path in sys.path:
+                sys.path.remove(src_path)
+
     def test_has_modified_tracked_files_mixed(self):
         """Test has_modified_tracked_files with both tracked and untracked changes."""
         import sys

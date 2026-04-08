@@ -3,6 +3,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 class GitOperationsTester(unittest.TestCase):
@@ -205,6 +206,33 @@ class GitOperationsTester(unittest.TestCase):
             git_dir = find_git_directory()
             self.assertEqual(
                 git_dir, self.test_dir, "Should find git directory from subdirectory"
+            )
+
+        except ImportError as e:
+            self.skipTest(f"Could not import required modules: {e}")
+        finally:
+            if src_path in sys.path:
+                sys.path.remove(src_path)
+
+    def test_git_add_files_deduplicates_and_uses_explicit_paths(self):
+        """Test selective staging uses explicit deduplicated file arguments."""
+        import sys
+
+        src_path = str(Path(self.original_cwd) / "src")
+        sys.path.insert(0, src_path)
+
+        try:
+            from codeup.git_utils import git_add_files
+
+            with patch("codeup.git_utils._run_git_command") as mock_run:
+                mock_run.return_value = (0, "", "")
+
+                result = git_add_files(["a.txt", "b.txt", "a.txt"])
+
+            self.assertEqual(result, 0)
+            mock_run.assert_called_once_with(
+                ["git", "add", "--", "a.txt", "b.txt"],
+                capture_output=False,
             )
 
         except ImportError as e:

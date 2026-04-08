@@ -18,6 +18,8 @@ class Args:
     no_interactive: bool
     log: bool
     just_ai_commit: bool
+    codex: bool
+    claude: bool
     set_key_anthropic: str | None
     set_key_openai: str | None
     clear_key_anthropic: bool
@@ -62,6 +64,8 @@ class Args:
         assert isinstance(
             self.just_ai_commit, bool
         ), f"Expected bool, got {type(self.just_ai_commit)}"
+        assert isinstance(self.codex, bool), f"Expected bool, got {type(self.codex)}"
+        assert isinstance(self.claude, bool), f"Expected bool, got {type(self.claude)}"
         assert isinstance(
             self.set_key_anthropic, str | type(None)
         ), f"Expected (str, type(None)), got {type(self.set_key_anthropic)}"
@@ -138,6 +142,17 @@ def _parse_args() -> Args:
         help="Skip linting and testing, just run the automatic AI commit generator",
         action="store_true",
     )
+    provider_group = parser.add_mutually_exclusive_group()
+    provider_group.add_argument(
+        "--codex",
+        help="Force commit message generation through the Codex CLI backend",
+        action="store_true",
+    )
+    provider_group.add_argument(
+        "--claude",
+        help="Force commit message generation through the Claude CLI backend",
+        action="store_true",
+    )
     parser.add_argument(
         "--set-key-anthropic",
         type=str,
@@ -193,6 +208,8 @@ def _parse_args() -> Args:
         no_interactive=tmp.no_interactive,
         log=tmp.log,
         just_ai_commit=tmp.just_ai_commit,
+        codex=tmp.codex,
+        claude=tmp.claude,
         set_key_anthropic=tmp.set_key_anthropic,
         set_key_openai=tmp.set_key_openai,
         clear_key_anthropic=tmp.clear_key_anthropic,
@@ -253,6 +270,8 @@ def parse_lint_test_args() -> Args:
         no_interactive=True,  # Always non-interactive for lint-test
         log=tmp.log,
         just_ai_commit=False,
+        codex=False,
+        claude=False,
         set_key_anthropic=None,
         set_key_openai=None,
         clear_key_anthropic=False,

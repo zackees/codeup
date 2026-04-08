@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 from codeup.aicommit import (
     AuthException,
     _clean_clud_output,
+    _generate_ai_commit_message,
     _generate_ai_commit_message_clud,
     _opencommit_or_prompt_for_commit_message,
     _strip_emojis,
@@ -226,6 +227,13 @@ class TestCleanCludOutput(unittest.TestCase):
         raw = "\U0001f4ca tokens: 12\n\U0001f4ac feat: add logging\n\U0001f4ca tokens: 12\n"
         self.assertEqual(_clean_clud_output(raw), "feat: add logging")
 
+    def test_ignores_stdin_status_line_before_commit_message(self):
+        """Test status chatter is ignored when a commit message follows."""
+        raw = (
+            "Reading additional input from stdin...\nfeat(docs): clarify README usage\n"
+        )
+        self.assertEqual(_clean_clud_output(raw), "feat(docs): clarify README usage")
+
 
 @unittest.skipUnless(shutil.which("clud"), "clud not available on this system")
 class TestCludCommitMessageGeneration(unittest.TestCase):
@@ -404,6 +412,56 @@ class TestCludCommitMessageUnit(unittest.TestCase):
         _generate_ai_commit_message_clud("line1\nline2\nline3")
         args = mock_run.call_args
         self.assertEqual(args.kwargs["input"], "line1\nline2\nline3")
+
+    @patch("subprocess.run")
+    @patch("shutil.which", return_value="/usr/bin/clud")
+    def test_codex_backend_passed_to_cli(self, _mock_which, mock_run):
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="feat: add codex cli support\n", stderr=""
+        )
+        result = _generate_ai_commit_message(provider="codex")
+        self.assertEqual(result, "feat: add codex cli support")
+        self.assertEqual(
+            mock_run.call_args.args[0][:3],
+            ["clud", "--session-model", "codex"],
+        )
+
+    @patch("subprocess.run")
+    @patch("shutil.which", return_value="/usr/bin/clud")
+    def test_claude_backend_passed_to_cli(self, _mock_which, mock_run):
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="fix: use claude cli for commits\n", stderr=""
+        )
+        result = _generate_ai_commit_message(provider="claude")
+        self.assertEqual(result, "fix: use claude cli for commits")
+        self.assertEqual(
+            mock_run.call_args.args[0][:3],
+            ["clud", "--session-model", "claude"],
+        )
+
+    @patch("shutil.which", return_value=None)
+    def test_forced_provider_fails_without_fallback_when_clud_missing(
+        self, _mock_which
+    ):
+        with (
+            patch("codeup.aicommit.get_git_diff_cached", return_value="diff --git a b"),
+            patch("codeup.console.error") as mock_error,
+            patch("codeup.aicommit.safe_git_commit") as mock_commit,
+        ):
+            with self.assertRaises(RuntimeError):
+                _opencommit_or_prompt_for_commit_message(
+                    auto_accept=True,
+                    no_interactive=False,
+                    provider="codex",
+                )
+
+        mock_commit.assert_not_called()
+        self.assertTrue(
+            any(
+                "Codex CLI commit message generation failed." in call.args[0]
+                for call in mock_error.call_args_list
+            )
+        )
 
 
 if __name__ == "__main__":

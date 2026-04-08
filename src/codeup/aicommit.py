@@ -2,6 +2,7 @@
 
 import logging
 import os
+import re
 import sys
 import threading
 
@@ -10,6 +11,8 @@ import openai
 from codeup.git_utils import get_git_diff, get_git_diff_cached, safe_git_commit
 
 logger = logging.getLogger(__name__)
+
+CommitProvider = str | None
 
 
 class InputTimeoutError(Exception):
@@ -102,22 +105,40 @@ def _clean_clud_output(raw_output: str) -> str | None:
         logger.warning("clud output was only code fences")
         return None
 
-    # Take only the first non-empty line
-    for line in text.split("\n"):
-        line = line.strip()
-        if line:
+    cleaned_lines = [line.strip() for line in text.split("\n") if line.strip()]
+    if not cleaned_lines:
+        logger.warning("clud output had no usable content")
+        return None
+
+    conventional_pattern = re.compile(
+        r"^(feat|fix|docs|style|refactor|perf|test|chore|ci|build)(\([^)]*\))?:\s+\S"
+    )
+    for line in cleaned_lines:
+        if conventional_pattern.match(line):
             return line
+
+    status_prefixes = (
+        "reading additional input from stdin",
+        "reading from stdin",
+        "processing stdin",
+    )
+    for line in cleaned_lines:
+        if line.lower().startswith(status_prefixes):
+            continue
+        return line
 
     logger.warning("clud output had no usable content")
     return None
 
 
-def _generate_ai_commit_message_clud(diff_text: str) -> str | None:
-    """Generate commit message using clud (Claude Code) as last-resort fallback.
+def _generate_cli_commit_message(
+    diff_text: str, backend: str | None = None
+) -> str | None:
+    """Generate commit message using the configured CLI backend.
 
     Returns:
         str: Successfully generated commit message
-        None: clud not available or generation failed
+        None: CLI backend not available or generation failed
     """
     import shutil
 
@@ -130,7 +151,12 @@ def _generate_ai_commit_message_clud(diff_text: str) -> str | None:
 
         from codeup.console import info, success
 
-        info("Trying clud as last-resort fallback for commit message generation")
+        if backend:
+            info(f"Trying {backend} CLI backend for commit message generation")
+        else:
+            info(
+                "Trying CLI backend as last-resort fallback for commit message generation"
+            )
 
         prompt = (
             "Write a conventional commit message (type(scope): description) for "
@@ -139,8 +165,13 @@ def _generate_ai_commit_message_clud(diff_text: str) -> str | None:
             "mood. No emojis. Only the message, nothing else."
         )
 
+        cmd = ["clud"]
+        if backend:
+            cmd.extend(["--session-model", backend])
+        cmd.extend(["-p", prompt])
+
         result = subprocess.run(
-            ["clud", "-p", prompt],
+            cmd,
             input=diff_text,
             capture_output=True,
             text=True,
@@ -150,34 +181,40 @@ def _generate_ai_commit_message_clud(diff_text: str) -> str | None:
 
         if result.returncode != 0:
             logger.warning(
-                f"clud exited with code {result.returncode}: {result.stderr}"
+                f"CLI backend exited with code {result.returncode}: {result.stderr}"
             )
             return None
 
         commit_message = result.stdout.strip()
         if not commit_message:
-            logger.warning("clud returned empty output")
+            logger.warning("CLI backend returned empty output")
             return None
 
         commit_message = _clean_clud_output(commit_message)
         if not commit_message:
             return None
 
-        success(f"Generated clud commit message: {commit_message[:50]}...")
+        source = backend if backend else "cli"
+        success(f"Generated {source} commit message: {commit_message[:50]}...")
         return commit_message
 
     except KeyboardInterrupt:
-        logger.info("_generate_ai_commit_message_clud interrupted by user")
+        logger.info("_generate_cli_commit_message interrupted by user")
         from codeup.git_utils import interrupt_main
 
         interrupt_main()
         raise
     except subprocess.TimeoutExpired:
-        logger.warning("clud timed out after 120 seconds")
+        logger.warning("CLI backend timed out after 120 seconds")
         return None
     except Exception as e:
-        logger.error(f"Failed to generate clud commit message: {e}")
+        logger.error(f"Failed to generate CLI commit message: {e}")
         return None
+
+
+def _generate_ai_commit_message_clud(diff_text: str) -> str | None:
+    """Backward-compatible wrapper for the default CLI fallback."""
+    return _generate_cli_commit_message(diff_text)
 
 
 def _generate_ai_commit_message_anthropic(
@@ -264,7 +301,25 @@ Respond with only the commit message, nothing else."""
         return None
 
 
-def _generate_ai_commit_message() -> str | AuthException | Exception:
+def _get_commit_diff_text() -> str | AuthException:
+    """Get the staged diff, falling back to the working-tree diff."""
+    diff_text = get_git_diff_cached()
+
+    if not diff_text:
+        logger.info("No staged changes, getting regular diff")
+        diff_text = get_git_diff()
+        if not diff_text:
+            logger.warning("No changes found in git diff")
+            return AuthException(
+                "No changes found in git diff to generate commit message"
+            )
+
+    return diff_text
+
+
+def _generate_ai_commit_message(
+    provider: CommitProvider = None,
+) -> str | AuthException | Exception:
     """Generate commit message using OpenAI API with Anthropic fallback.
 
     Returns:
@@ -276,23 +331,24 @@ def _generate_ai_commit_message() -> str | AuthException | Exception:
     anthropic_auth_error: AuthException | None = None
 
     try:
+        diff_result = _get_commit_diff_text()
+        if isinstance(diff_result, AuthException):
+            return diff_result
+        diff_text = diff_result
+
+        if provider in ("codex", "claude"):
+            cli_result = _generate_cli_commit_message(diff_text, backend=provider)
+            if isinstance(cli_result, str):
+                return cli_result
+            return AuthException(
+                f"{provider.capitalize()} CLI commit message generation failed. "
+                f"Check that 'clud' is installed and the {provider} backend is available."
+            )
+
         # Import and use existing OpenAI config system
         from codeup.config import get_openai_api_key
 
         api_key = get_openai_api_key()
-
-        # Get staged diff
-        diff_text = get_git_diff_cached()
-
-        if not diff_text:
-            # No staged changes, get regular diff
-            logger.info("No staged changes, getting regular diff")
-            diff_text = get_git_diff()
-            if not diff_text:
-                logger.warning("No changes found in git diff")
-                return AuthException(
-                    "No changes found in git diff to generate commit message"
-                )
 
         # Try OpenAI first if we have a key
         if api_key:
@@ -458,13 +514,15 @@ Respond with only the commit message, nothing else."""
 
 
 def _opencommit_or_prompt_for_commit_message(
-    auto_accept: bool, no_interactive: bool = False
+    auto_accept: bool,
+    no_interactive: bool = False,
+    provider: CommitProvider = None,
 ) -> None:
     """Generate AI commit message or prompt for manual input."""
     from codeup.console import error, info, success
 
     # Try to generate AI commit message first
-    result = _generate_ai_commit_message()
+    result = _generate_ai_commit_message(provider=provider)
 
     # Handle successful commit message generation
     if isinstance(result, str):
@@ -480,6 +538,12 @@ def _opencommit_or_prompt_for_commit_message(
         logger.warning(
             f"AI commit generation failed with auth error: {auth_error.message}"
         )
+
+        if provider in ("codex", "claude"):
+            error(f"⚠ {auth_error.message}")
+            raise RuntimeError(
+                f"Forced CLI provider '{provider}' failed: {auth_error.message}"
+            )
 
         if no_interactive:
             # In non-interactive mode, fail immediately with clear instructions
@@ -621,7 +685,10 @@ def _opencommit_or_prompt_for_commit_message(
 
 
 def ai_commit_or_prompt_for_commit_message(
-    no_autoaccept: bool, message: str | None = None, no_interactive: bool = False
+    no_autoaccept: bool,
+    message: str | None = None,
+    no_interactive: bool = False,
+    provider: CommitProvider = None,
 ) -> None:
     """Generate commit message using AI or prompt for manual input."""
     if message:
@@ -630,5 +697,7 @@ def ai_commit_or_prompt_for_commit_message(
     else:
         # Use AI or interactive commit
         _opencommit_or_prompt_for_commit_message(
-            auto_accept=not no_autoaccept, no_interactive=no_interactive
+            auto_accept=not no_autoaccept,
+            no_interactive=no_interactive,
+            provider=provider,
         )

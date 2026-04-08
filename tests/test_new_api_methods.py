@@ -2,8 +2,11 @@
 
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
 from codeup import Codeup
 
@@ -132,6 +135,169 @@ class NewApiMethodsTester(unittest.TestCase):
             import shutil
 
             shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_interactive_add_untracked_files_can_remove_paths(self):
+        """Test interactive untracked file flow supports remove action."""
+        temp_dir = tempfile.mkdtemp()
+        original_dir = os.getcwd()
+        src_path = str(Path(__file__).resolve().parents[1] / "src")
+
+        try:
+            os.chdir(temp_dir)
+            sys.path.insert(0, src_path)
+            for module_name in list(sys.modules):
+                if module_name == "codeup" or module_name.startswith("codeup."):
+                    del sys.modules[module_name]
+
+            subprocess.run(["git", "init"], check=True, capture_output=True, text=True)
+            subprocess.run(
+                ["git", "config", "user.email", "test@example.com"],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "Test User"],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+
+            with open("delete_me.txt", "w") as f:
+                f.write("temporary content")
+            os.mkdir("keep_me")
+            with open(os.path.join("keep_me", "note.txt"), "w") as f:
+                f.write("keep")
+
+            from codeup.git_utils import (
+                get_untracked_files,
+                interactive_add_untracked_files,
+            )
+
+            with patch(
+                "codeup.utils.get_answer_with_choices",
+                side_effect=["r", "n"],
+            ):
+                result = interactive_add_untracked_files(
+                    is_tty=True,
+                    pre_test_mode=False,
+                    no_interactive=False,
+                )
+
+            self.assertTrue(result.success, f"Error: {result.error_message}")
+            self.assertFalse(os.path.exists("delete_me.txt"))
+            self.assertTrue(os.path.exists("keep_me"))
+            self.assertEqual(result.files_added, [])
+            self.assertEqual(result.files_skipped, ["keep_me/note.txt"])
+            self.assertEqual(get_untracked_files(), ["keep_me/note.txt"])
+
+        finally:
+            if src_path in sys.path:
+                sys.path.remove(src_path)
+            os.chdir(original_dir)
+            import shutil
+
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_remove_untracked_path_refuses_tracked_files(self):
+        """Test tracked files are not removed by the untracked-path helper."""
+        temp_dir = tempfile.mkdtemp()
+        original_dir = os.getcwd()
+        src_path = str(Path(__file__).resolve().parents[1] / "src")
+
+        try:
+            os.chdir(temp_dir)
+            sys.path.insert(0, src_path)
+            for module_name in list(sys.modules):
+                if module_name == "codeup" or module_name.startswith("codeup."):
+                    del sys.modules[module_name]
+
+            subprocess.run(["git", "init"], check=True, capture_output=True, text=True)
+            subprocess.run(
+                ["git", "config", "user.email", "test@example.com"],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "Test User"],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+
+            with open("tracked.txt", "w") as f:
+                f.write("tracked content")
+            subprocess.run(
+                ["git", "add", "tracked.txt"],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            subprocess.run(
+                ["git", "commit", "-m", "test: add tracked file"],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+
+            from codeup.git_utils import remove_untracked_path
+
+            self.assertFalse(remove_untracked_path("tracked.txt"))
+            self.assertTrue(os.path.exists("tracked.txt"))
+
+        finally:
+            if src_path in sys.path:
+                sys.path.remove(src_path)
+            os.chdir(original_dir)
+            import shutil
+
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+    def test_remove_untracked_path_refuses_paths_outside_repo(self):
+        """Test untracked-path removal refuses paths outside the repository root."""
+        temp_dir = tempfile.mkdtemp()
+        outside_dir = tempfile.mkdtemp()
+        original_dir = os.getcwd()
+        src_path = str(Path(__file__).resolve().parents[1] / "src")
+
+        try:
+            os.chdir(temp_dir)
+            sys.path.insert(0, src_path)
+            for module_name in list(sys.modules):
+                if module_name == "codeup" or module_name.startswith("codeup."):
+                    del sys.modules[module_name]
+
+            subprocess.run(["git", "init"], check=True, capture_output=True, text=True)
+            subprocess.run(
+                ["git", "config", "user.email", "test@example.com"],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "Test User"],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+
+            outside_file = Path(outside_dir) / "outside.txt"
+            outside_file.write_text("outside", encoding="utf-8")
+
+            from codeup.git_utils import remove_untracked_path
+
+            self.assertFalse(remove_untracked_path(str(outside_file)))
+            self.assertTrue(outside_file.exists())
+
+        finally:
+            if src_path in sys.path:
+                sys.path.remove(src_path)
+            os.chdir(original_dir)
+            import shutil
+
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            shutil.rmtree(outside_dir, ignore_errors=True)
 
     def test_lint_script_not_found(self):
         """Test lint() when ./lint script doesn't exist."""

@@ -48,6 +48,8 @@ class ArgumentParsingTester(unittest.TestCase):
             self.assertFalse(
                 args.just_ai_commit, "Default just_ai_commit should be False"
             )
+            self.assertFalse(args.codex, "Default codex should be False")
+            self.assertFalse(args.claude, "Default claude should be False")
 
             # Restore original argv
             sys.argv = original_argv
@@ -100,6 +102,8 @@ class ArgumentParsingTester(unittest.TestCase):
             self.assertTrue(
                 args.just_ai_commit, "just_ai_commit should be True when flag is set"
             )
+            self.assertFalse(args.codex, "codex should be False unless requested")
+            self.assertFalse(args.claude, "claude should be False unless requested")
 
             sys.argv = original_argv
 
@@ -236,6 +240,38 @@ class ArgumentParsingTester(unittest.TestCase):
             if src_path in sys.path:
                 sys.path.remove(src_path)
 
+    def test_cli_backend_flags(self):
+        """Test forced CLI backend flags."""
+        src_path = str(Path(self.original_cwd) / "src")
+        sys.path.insert(0, src_path)
+
+        try:
+            from codeup.args import _parse_args
+
+            original_argv = sys.argv
+
+            sys.argv = ["codeup", "--codex"]
+            args = _parse_args()
+            self.assertTrue(args.codex, "codex should be True when flag is set")
+            self.assertFalse(args.claude, "claude should remain False")
+
+            sys.argv = ["codeup", "--claude"]
+            args = _parse_args()
+            self.assertTrue(args.claude, "claude should be True when flag is set")
+            self.assertFalse(args.codex, "codex should remain False")
+
+            sys.argv = ["codeup", "--codex", "--claude"]
+            with self.assertRaises(SystemExit):
+                _parse_args()
+
+            sys.argv = original_argv
+
+        except ImportError as e:
+            self.skipTest(f"Could not import main module: {e}")
+        finally:
+            if src_path in sys.path:
+                sys.path.remove(src_path)
+
     def test_args_dataclass_validation(self):
         """Test that Args dataclass validates input types."""
         src_path = str(Path(self.original_cwd) / "src")
@@ -258,6 +294,8 @@ class ArgumentParsingTester(unittest.TestCase):
                 no_interactive=False,
                 log=False,
                 just_ai_commit=False,
+                codex=False,
+                claude=False,
                 set_key_anthropic=None,
                 set_key_openai=None,
                 clear_key_anthropic=False,
@@ -287,6 +325,8 @@ class ArgumentParsingTester(unittest.TestCase):
                 no_interactive=True,
                 log=True,
                 just_ai_commit=True,
+                codex=True,
+                claude=False,
                 set_key_anthropic="sk-ant-test",
                 set_key_openai="sk-test",
                 clear_key_anthropic=True,

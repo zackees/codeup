@@ -374,11 +374,306 @@ class CodeupTester(unittest.TestCase):
             if str(Path(self.original_cwd) / "src") in sys.path:
                 sys.path.remove(str(Path(self.original_cwd) / "src"))
 
-            # Clean up scripts
-            if lint_script.exists():
-                lint_script.unlink()
-            if test_script.exists():
-                test_script.unlink()
+    def test_skipped_untracked_files_are_not_staged_by_main_workflow(self):
+        """Test skipped untracked files stay untracked instead of being blanket-added."""
+        with open("test_file.txt", "w") as f:
+            f.write("Hello World - Modified")
+        with open("keep_untracked.txt", "w") as f:
+            f.write("Keep me out of the commit")
+
+        import sys
+
+        sys.path.insert(0, str(Path(self.original_cwd) / "src"))
+
+        try:
+            from codeup.main import _main_worker
+
+            with (
+                patch(
+                    "sys.argv",
+                    ["codeup", "--no-push", "--no-lint", "--no-test"],
+                ),
+                patch("codeup.utils.get_answer_with_choices", return_value="n"),
+                patch(
+                    "codeup.main.ai_commit_or_prompt_for_commit_message"
+                ) as mock_commit,
+                patch("sys.stdin.isatty", return_value=True),
+            ):
+                result = _main_worker()
+
+            self.assertEqual(result, 0)
+            mock_commit.assert_called_once()
+
+            status_result = subprocess.run(
+                ["git", "status", "--porcelain"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            status_lines = status_result.stdout.splitlines()
+
+            self.assertIn("M  test_file.txt", status_lines)
+            self.assertIn("?? keep_untracked.txt", status_lines)
+            self.assertNotIn("A  keep_untracked.txt", status_lines)
+
+        except ImportError as e:
+            self.skipTest(f"Could not import codeup module: {e}")
+        finally:
+            if str(Path(self.original_cwd) / "src") in sys.path:
+                sys.path.remove(str(Path(self.original_cwd) / "src"))
+
+    def test_main_worker_stages_only_tracked_files_with_mocks(self):
+        """Test the main workflow stages only tracked files before committing."""
+        import sys
+
+        sys.path.insert(0, str(Path(self.original_cwd) / "src"))
+
+        try:
+            from codeup.main import _main_worker
+
+            with (
+                patch(
+                    "sys.argv",
+                    ["codeup", "--no-push", "--no-lint", "--no-test"],
+                ),
+                patch(
+                    "codeup.main.check_environment",
+                    return_value=Path(self.test_dir),
+                ),
+                patch("os.chdir"),
+                patch("codeup.main.get_staged_files", return_value=[]),
+                patch("codeup.main.get_unstaged_files", return_value=["test_file.txt"]),
+                patch(
+                    "codeup.main.get_untracked_files",
+                    return_value=["keep_untracked.txt"],
+                ),
+                patch("codeup.main.has_unpushed_commits", return_value=False),
+                patch(
+                    "codeup.main.interactive_add_untracked_files"
+                ) as mock_interactive_add,
+                patch("codeup.main.has_modified_tracked_files", return_value=True),
+                patch(
+                    "codeup.main.git_add_files", return_value=0
+                ) as mock_git_add_files,
+                patch(
+                    "codeup.main.ai_commit_or_prompt_for_commit_message"
+                ) as mock_commit,
+                patch("sys.stdin.isatty", return_value=True),
+            ):
+                mock_interactive_add.return_value.success = True
+                mock_interactive_add.return_value.error_message = ""
+                mock_interactive_add.return_value.files_added = []
+                mock_interactive_add.return_value.files_skipped = ["keep_untracked.txt"]
+
+                result = _main_worker()
+
+            self.assertEqual(result, 0)
+            mock_git_add_files.assert_called_once_with(["test_file.txt"])
+            mock_commit.assert_called_once()
+
+        except ImportError as e:
+            self.skipTest(f"Could not import codeup module: {e}")
+        finally:
+            if str(Path(self.original_cwd) / "src") in sys.path:
+                sys.path.remove(str(Path(self.original_cwd) / "src"))
+
+    def test_main_worker_skips_commit_when_only_untracked_files_added_with_mocks(self):
+        """Test the main workflow does not commit when there are only new files."""
+        import sys
+
+        sys.path.insert(0, str(Path(self.original_cwd) / "src"))
+
+        try:
+            from codeup.main import _main_worker
+
+            with (
+                patch(
+                    "sys.argv",
+                    ["codeup", "--no-push", "--no-lint", "--no-test"],
+                ),
+                patch(
+                    "codeup.main.check_environment",
+                    return_value=Path(self.test_dir),
+                ),
+                patch("os.chdir"),
+                patch("codeup.main.get_staged_files", return_value=[]),
+                patch("codeup.main.get_unstaged_files", return_value=[]),
+                patch("codeup.main.get_untracked_files", return_value=["new_file.txt"]),
+                patch("codeup.main.has_unpushed_commits", return_value=False),
+                patch(
+                    "codeup.main.interactive_add_untracked_files"
+                ) as mock_interactive_add,
+                patch("codeup.main.has_modified_tracked_files", return_value=False),
+                patch(
+                    "codeup.main.git_add_files", return_value=0
+                ) as mock_git_add_files,
+                patch(
+                    "codeup.main.ai_commit_or_prompt_for_commit_message"
+                ) as mock_commit,
+                patch("sys.stdin.isatty", return_value=True),
+            ):
+                mock_interactive_add.return_value.success = True
+                mock_interactive_add.return_value.error_message = ""
+                mock_interactive_add.return_value.files_added = ["new_file.txt"]
+                mock_interactive_add.return_value.files_skipped = []
+
+                result = _main_worker()
+
+            self.assertEqual(result, 0)
+            mock_git_add_files.assert_called_once_with([])
+            mock_commit.assert_not_called()
+
+        except ImportError as e:
+            self.skipTest(f"Could not import codeup module: {e}")
+        finally:
+            if str(Path(self.original_cwd) / "src") in sys.path:
+                sys.path.remove(str(Path(self.original_cwd) / "src"))
+
+    def test_main_worker_aborts_when_lint_adds_unexpected_file(self):
+        """Test lint/test drift detection aborts on newly added untracked files."""
+        import sys
+
+        sys.path.insert(0, str(Path(self.original_cwd) / "src"))
+
+        try:
+            from codeup.main import _main_worker
+
+            with (
+                patch(
+                    "sys.argv",
+                    ["codeup", "--no-push", "--no-test"],
+                ),
+                patch(
+                    "codeup.main.check_environment",
+                    return_value=Path(self.test_dir),
+                ),
+                patch("os.chdir"),
+                patch(
+                    "codeup.main.os.path.exists",
+                    side_effect=lambda path: path == "./lint",
+                ),
+                patch("codeup.main.get_staged_files", side_effect=[[], [], []]),
+                patch(
+                    "codeup.main.get_unstaged_files",
+                    side_effect=[
+                        ["test_file.txt"],
+                        ["test_file.txt"],
+                        ["test_file.txt"],
+                    ],
+                ),
+                patch(
+                    "codeup.main.get_untracked_files",
+                    side_effect=[[], [], ["generated.txt"]],
+                ),
+                patch("codeup.main.get_git_diff_cached", side_effect=["", ""]),
+                patch(
+                    "codeup.main.get_git_diff",
+                    side_effect=["tracked-diff", "tracked-diff"],
+                ),
+                patch("codeup.main.has_unpushed_commits", return_value=False),
+                patch("codeup.main.has_modified_tracked_files", return_value=True),
+                patch("codeup.main._run_command_streaming", return_value=(0, "", "")),
+                patch(
+                    "codeup.main.git_add_files", return_value=0
+                ) as mock_git_add_files,
+                patch(
+                    "codeup.main.ai_commit_or_prompt_for_commit_message"
+                ) as mock_commit,
+                patch("codeup.main.error") as mock_error,
+            ):
+                result = _main_worker()
+
+            self.assertEqual(result, 1)
+            mock_git_add_files.assert_not_called()
+            mock_commit.assert_not_called()
+            self.assertTrue(
+                any(
+                    "MAJOR ERROR: Repository files changed during lint/test."
+                    in call.args[0]
+                    for call in mock_error.call_args_list
+                )
+            )
+            self.assertTrue(
+                any(
+                    "New untracked files appeared during lint/test: generated.txt"
+                    in call.args[0]
+                    for call in mock_error.call_args_list
+                )
+            )
+
+        except ImportError as e:
+            self.skipTest(f"Could not import codeup module: {e}")
+        finally:
+            if str(Path(self.original_cwd) / "src") in sys.path:
+                sys.path.remove(str(Path(self.original_cwd) / "src"))
+
+    def test_main_worker_aborts_when_lint_changes_tracked_diff(self):
+        """Test lint/test drift detection aborts on tracked diff changes."""
+        import sys
+
+        sys.path.insert(0, str(Path(self.original_cwd) / "src"))
+
+        try:
+            from codeup.main import _main_worker
+
+            with (
+                patch(
+                    "sys.argv",
+                    ["codeup", "--no-push", "--no-test"],
+                ),
+                patch(
+                    "codeup.main.check_environment",
+                    return_value=Path(self.test_dir),
+                ),
+                patch("os.chdir"),
+                patch(
+                    "codeup.main.os.path.exists",
+                    side_effect=lambda path: path == "./lint",
+                ),
+                patch("codeup.main.get_staged_files", side_effect=[[], [], []]),
+                patch(
+                    "codeup.main.get_unstaged_files",
+                    side_effect=[
+                        ["test_file.txt"],
+                        ["test_file.txt"],
+                        ["test_file.txt"],
+                    ],
+                ),
+                patch("codeup.main.get_untracked_files", side_effect=[[], [], []]),
+                patch("codeup.main.get_git_diff_cached", side_effect=["", ""]),
+                patch(
+                    "codeup.main.get_git_diff",
+                    side_effect=["tracked-diff-before", "tracked-diff-after"],
+                ),
+                patch("codeup.main.has_unpushed_commits", return_value=False),
+                patch("codeup.main.has_modified_tracked_files", return_value=True),
+                patch("codeup.main._run_command_streaming", return_value=(0, "", "")),
+                patch(
+                    "codeup.main.git_add_files", return_value=0
+                ) as mock_git_add_files,
+                patch(
+                    "codeup.main.ai_commit_or_prompt_for_commit_message"
+                ) as mock_commit,
+                patch("codeup.main.error") as mock_error,
+            ):
+                result = _main_worker()
+
+            self.assertEqual(result, 1)
+            mock_git_add_files.assert_not_called()
+            mock_commit.assert_not_called()
+            self.assertTrue(
+                any(
+                    "The unstaged tracked diff changed during lint/test."
+                    in call.args[0]
+                    for call in mock_error.call_args_list
+                )
+            )
+
+        except ImportError as e:
+            self.skipTest(f"Could not import codeup module: {e}")
+        finally:
+            if str(Path(self.original_cwd) / "src") in sys.path:
+                sys.path.remove(str(Path(self.original_cwd) / "src"))
 
 
 if __name__ == "__main__":

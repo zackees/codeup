@@ -3,6 +3,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 class UtilitiesTester(unittest.TestCase):
@@ -137,6 +138,34 @@ class UtilitiesTester(unittest.TestCase):
             if src_path in sys.path:
                 sys.path.remove(src_path)
 
+    def test_choice_question_handling(self):
+        """Test explicit multi-choice question handling."""
+        src_path = str(Path(self.original_cwd) / "src")
+        sys.path.insert(0, src_path)
+
+        try:
+            from codeup.utils import get_answer_with_choices
+
+            result = get_answer_with_choices("Test question?", ["y", "n", "r"], "n")
+            self.assertEqual(
+                result,
+                "n",
+                "Should return default choice in non-interactive mode",
+            )
+
+            with patch("sys.stdin.isatty", return_value=True):
+                with patch("codeup.utils.input_with_timeout", return_value="remove"):
+                    result = get_answer_with_choices(
+                        "Test question?", ["y", "n", "r"], "n"
+                    )
+                    self.assertEqual(result, "r")
+
+        except ImportError as e:
+            self.skipTest(f"Could not import utility module: {e}")
+        finally:
+            if src_path in sys.path:
+                sys.path.remove(src_path)
+
     def test_logging_configuration(self):
         """Test logging configuration."""
         src_path = str(Path(self.original_cwd) / "src")
@@ -165,6 +194,53 @@ class UtilitiesTester(unittest.TestCase):
 
                 finally:
                     os.chdir(original_cwd)
+
+        except ImportError as e:
+            self.skipTest(f"Could not import main module: {e}")
+        finally:
+            if src_path in sys.path:
+                sys.path.remove(src_path)
+
+    def test_timeout_monitoring_only_active_for_lint_and_test_phases(self):
+        """Test stale watchdog only applies during lint/test subprocess phases."""
+        src_path = str(Path(self.original_cwd) / "src")
+        sys.path.insert(0, src_path)
+
+        try:
+            import codeup.main as main
+
+            self.assertFalse(main._is_timeout_monitored_phase())
+
+            original_context = main._current_command_context
+            try:
+                main._current_command_context = main.CommandContext(
+                    phase="LINTING",
+                    command_display="./lint",
+                    command_parts=["./lint"],
+                    start_time=0.0,
+                    has_pty=True,
+                )
+                self.assertTrue(main._is_timeout_monitored_phase())
+
+                main._current_command_context = main.CommandContext(
+                    phase="TESTING",
+                    command_display="./test",
+                    command_parts=["./test"],
+                    start_time=0.0,
+                    has_pty=True,
+                )
+                self.assertTrue(main._is_timeout_monitored_phase())
+
+                main._current_command_context = main.CommandContext(
+                    phase="GIT_STATUS",
+                    command_display="git status",
+                    command_parts=["git", "status"],
+                    start_time=0.0,
+                    has_pty=True,
+                )
+                self.assertFalse(main._is_timeout_monitored_phase())
+            finally:
+                main._current_command_context = original_context
 
         except ImportError as e:
             self.skipTest(f"Could not import main module: {e}")

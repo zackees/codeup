@@ -3,6 +3,7 @@
 import _thread
 import logging
 import os
+import shutil
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -619,10 +620,21 @@ def has_modified_tracked_files() -> bool:
         if unstaged_files:
             return True
 
-        # Get staged changes
-        staged_files = get_staged_files()
-        if staged_files:
-            return True
+        # Get staged changes, excluding newly added files.
+        exit_code, stdout, _ = _run_git_command(
+            ["git", "diff", "--cached", "--name-status"],
+            quiet=True,
+        )
+        if exit_code != 0:
+            return False
+
+        for line in stdout.splitlines():
+            parts = line.split("\t")
+            if not parts:
+                continue
+            status = parts[0].strip()
+            if status and not status.startswith("A"):
+                return True
 
         return False
 
@@ -633,6 +645,36 @@ def has_modified_tracked_files() -> bool:
     except Exception as e:
         logger.error(f"Error checking for modified tracked files: {e}")
         return False
+
+
+def git_add_files(filenames: list[str]) -> int:
+    """Run `git add -- <files...>` for an explicit file list."""
+    try:
+        from codeup.console import dim, error
+
+        unique_filenames = list(dict.fromkeys(filenames))
+        if not unique_filenames:
+            return 0
+
+        dim(f"Running: git add -- {' '.join(unique_filenames)}")
+        exit_code, _, _ = _run_git_command(
+            ["git", "add", "--", *unique_filenames],
+            capture_output=False,
+        )
+        if exit_code != 0:
+            error(f"git add -- <files> returned {exit_code}")
+        return exit_code
+
+    except KeyboardInterrupt:
+        logger.info("git_add_files interrupted by user")
+        interrupt_main()
+        raise
+    except Exception as e:
+        from codeup.console import error
+
+        logger.error(f"Error in git_add_files: {e}")
+        error(f"Error executing git add for selected files: {e}")
+        return 1
 
 
 def find_git_directory() -> str:
@@ -698,6 +740,57 @@ def git_add_file(filename: str) -> int:
         return 1
 
 
+def remove_untracked_path(filename: str) -> bool:
+    """Remove an untracked file or directory from disk."""
+    try:
+        from codeup.console import dim, error, warning
+
+        repo_root = find_git_directory()
+        if not repo_root:
+            error("Unable to locate git repository root for file removal")
+            return False
+
+        repo_root_path = Path(repo_root).resolve()
+        target_path = Path(filename)
+        if not target_path.is_absolute():
+            target_path = Path.cwd() / target_path
+        resolved_target = target_path.resolve(strict=False)
+
+        try:
+            resolved_target.relative_to(repo_root_path)
+        except ValueError:
+            error(f"Refusing to remove path outside repository: {filename}")
+            return False
+
+        untracked_paths = {
+            (Path.cwd() / untracked_file).resolve(strict=False)
+            for untracked_file in get_untracked_files()
+        }
+        if resolved_target not in untracked_paths:
+            error(f"Refusing to remove tracked or unknown path: {filename}")
+            return False
+
+        dim(f"Removing untracked path: {filename}")
+        if resolved_target.is_dir():
+            shutil.rmtree(resolved_target)
+        elif resolved_target.exists() or resolved_target.is_symlink():
+            resolved_target.unlink()
+        else:
+            warning(f"Path already missing, nothing to remove: {filename}")
+
+        return True
+    except KeyboardInterrupt:
+        logger.info("remove_untracked_path interrupted by user")
+        interrupt_main()
+        raise
+    except Exception as e:
+        from codeup.console import error
+
+        logger.error(f"Error removing untracked path {filename}: {e}")
+        error(f"Error removing {filename}: {e}")
+        return False
+
+
 def interactive_add_untracked_files(
     is_tty: bool = True,
     pre_test_mode: bool = False,
@@ -720,7 +813,7 @@ def interactive_add_untracked_files(
         files added and skipped
     """
     from codeup.console import error, info, warning
-    from codeup.utils import format_filename_with_warning, get_answer_yes_or_no
+    from codeup.utils import format_filename_with_warning, get_answer_with_choices
 
     try:
         # Get untracked files
@@ -774,27 +867,30 @@ def interactive_add_untracked_files(
                 else:
                     files_skipped.append(untracked_file)
         else:
-            # Interactive mode: prompt for each file
-            answer_yes = get_answer_yes_or_no("Continue?", "y")
-            if not answer_yes:
-                warning("Aborting")
-                return InteractiveAddResult(
-                    success=False,
-                    error_message="User aborted file add",
-                    files_added=[],
-                    files_skipped=untracked_files,
-                )
-
+            # Interactive mode: prompt for each file with explicit actions
+            warning("Untracked files found.")
+            info(
+                "Choose per file: [y] add to git, [n] keep untracked, [r] remove from disk"
+            )
             for untracked_file in untracked_files:
                 formatted_name = format_filename_with_warning(untracked_file)
-                answer_yes = get_answer_yes_or_no(f"  Add {formatted_name}?", "y")
-                if answer_yes:
+                answer = get_answer_with_choices(
+                    f"  Untracked file: {formatted_name}",
+                    ["y", "n", "r"],
+                    "n",
+                )
+                if answer == "y":
                     if git_add_file(untracked_file) == 0:
                         files_added.append(untracked_file)
                     else:
                         files_skipped.append(untracked_file)
+                elif answer == "r":
+                    if remove_untracked_path(untracked_file):
+                        info(f"  Removed {formatted_name}")
+                    else:
+                        files_skipped.append(untracked_file)
                 else:
-                    info(f"  Skipping {formatted_name}")
+                    info(f"  Keeping untracked: {formatted_name}")
                     files_skipped.append(untracked_file)
 
         return InteractiveAddResult(
