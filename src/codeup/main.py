@@ -61,6 +61,7 @@ from codeup.utils import (
     check_environment,
     configure_logging,
     get_answer_yes_or_no,
+    is_end_of_stream,
     is_uv_project,
     set_interrupted,
 )
@@ -355,7 +356,7 @@ def _run_command_streaming(
                     continue
                 break
 
-            if isinstance(line, rp.end_of_stream_type):
+            if is_end_of_stream(rp, line):
                 break
 
             if capture_output:

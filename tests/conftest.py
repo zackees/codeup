@@ -1,3 +1,5 @@
+# pyright: reportMissingImports=false
+
 """Pytest configuration and fixtures for test optimization."""
 
 import sys

@@ -1,5 +1,6 @@
 """Utility functions for CodeUp."""
 
+import importlib
 import logging
 import os
 import shlex
@@ -13,6 +14,18 @@ from running_process import RunningProcess
 from running_process.output_formatter import NullOutputFormatter
 
 from codeup.git_utils import find_git_directory
+
+
+def _load_running_process_end_of_stream_type():
+    """Return the dependency's end-of-stream sentinel when available."""
+    try:
+        module = importlib.import_module("running_process.process_output_reader")
+    except ImportError:  # pragma: no cover - compatibility with older running_process
+        return None
+    return getattr(module, "EndOfStream", None)
+
+
+_RunningProcessEndOfStream = _load_running_process_end_of_stream_type()
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +66,23 @@ def process_is_running(process) -> bool:
     if callable(poll):
         return poll() is None
 
+    return False
+
+
+def is_end_of_stream(process, line) -> bool:
+    """Return whether a streamed line is the dependency's end-of-stream sentinel.
+
+    ``running_process`` has shipped two sentinel APIs:
+    newer releases return ``process_output_reader.EndOfStream`` directly, while
+    some wrappers expose an ``end_of_stream_type`` attribute on the process.
+    """
+    end_of_stream_type = getattr(process, "end_of_stream_type", None)
+    if end_of_stream_type is not None and isinstance(line, end_of_stream_type):
+        return True
+    if _RunningProcessEndOfStream is not None and isinstance(
+        line, _RunningProcessEndOfStream
+    ):
+        return True
     return False
 
 
@@ -382,7 +412,7 @@ def _exec(cmd: str, bash: bool, die=True) -> int:
                     continue
                 break
 
-            if isinstance(line, rp.end_of_stream_type):
+            if is_end_of_stream(rp, line):
                 break
 
             print(line, flush=True)

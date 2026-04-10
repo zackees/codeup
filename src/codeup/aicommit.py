@@ -592,7 +592,7 @@ def _opencommit_or_prompt_for_commit_message(
     except Exception as e:
         from codeup.utils import InputTimeoutError, exit_for_missing_user_input
 
-        if isinstance(e, (EOFError, InputTimeoutError)):
+        if isinstance(e, EOFError | InputTimeoutError):
             logger.warning(f"Manual commit message input failed: {e}")
             exit_for_missing_user_input()
         raise

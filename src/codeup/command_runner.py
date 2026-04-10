@@ -33,6 +33,8 @@ def run_command_with_callback(
     stdout_lines = []
     stopped_early = False
 
+    from codeup.utils import is_end_of_stream
+
     rp = RunningProcess(
         command=cmd,
         shell=shell,
@@ -55,7 +57,7 @@ def run_command_with_callback(
                     continue
                 break
 
-            if isinstance(line, rp.end_of_stream_type):
+            if is_end_of_stream(rp, line):
                 break
 
             # Capture the line
