@@ -108,29 +108,20 @@ class UtilitiesTester(unittest.TestCase):
 
         try:
             from codeup.main import get_answer_yes_or_no
+            from codeup.utils import InputTimeoutError
 
-            # This function has special handling for non-interactive terminals
-            # When stdin is not a tty, it uses the default value
-            # Test default behavior with non-interactive stdin
-            result = get_answer_yes_or_no("Test question?", default=True)
-            self.assertTrue(
-                result, "Should return True for default True in non-interactive mode"
-            )
+            with patch("sys.stdin.isatty", return_value=True):
+                with patch("codeup.utils.input_with_timeout", return_value=""):
+                    result = get_answer_yes_or_no("Test question?", default="y")
+                    self.assertTrue(result)
 
-            result = get_answer_yes_or_no("Test question?", default=False)
-            self.assertFalse(
-                result, "Should return False for default False in non-interactive mode"
-            )
-
-            result = get_answer_yes_or_no("Test question?", default="y")
-            self.assertTrue(
-                result, "Should return True for default 'y' in non-interactive mode"
-            )
-
-            result = get_answer_yes_or_no("Test question?", default="n")
-            self.assertFalse(
-                result, "Should return False for default 'n' in non-interactive mode"
-            )
+                with patch(
+                    "codeup.utils.input_with_timeout",
+                    side_effect=InputTimeoutError("Input timed out"),
+                ):
+                    with self.assertRaises(SystemExit) as cm:
+                        get_answer_yes_or_no("Test question?", default="y")
+                    self.assertEqual(cm.exception.code, 1)
 
         except ImportError as e:
             self.skipTest(f"Could not import main module: {e}")
@@ -144,14 +135,7 @@ class UtilitiesTester(unittest.TestCase):
         sys.path.insert(0, src_path)
 
         try:
-            from codeup.utils import get_answer_with_choices
-
-            result = get_answer_with_choices("Test question?", ["y", "n", "r"], "n")
-            self.assertEqual(
-                result,
-                "n",
-                "Should return default choice in non-interactive mode",
-            )
+            from codeup.utils import InputTimeoutError, get_answer_with_choices
 
             with patch("sys.stdin.isatty", return_value=True):
                 with patch("codeup.utils.input_with_timeout", return_value="remove"):
@@ -159,6 +143,58 @@ class UtilitiesTester(unittest.TestCase):
                         "Test question?", ["y", "n", "r"], "n"
                     )
                     self.assertEqual(result, "r")
+
+                with patch(
+                    "codeup.utils.input_with_timeout",
+                    side_effect=InputTimeoutError("Input timed out"),
+                ):
+                    with self.assertRaises(SystemExit) as cm:
+                        get_answer_with_choices("Test question?", ["y", "n", "r"], "n")
+                    self.assertEqual(cm.exception.code, 1)
+
+        except ImportError as e:
+            self.skipTest(f"Could not import utility module: {e}")
+        finally:
+            if src_path in sys.path:
+                sys.path.remove(src_path)
+
+    def test_prompt_timeout_policy(self):
+        """Test environment-specific prompt timeout selection."""
+        src_path = str(Path(self.original_cwd) / "src")
+        sys.path.insert(0, src_path)
+
+        try:
+            from codeup.utils import get_prompt_timeout_seconds
+
+            with (
+                patch("sys.stdin.isatty", return_value=True),
+                patch.dict("os.environ", {}, clear=True),
+            ):
+                self.assertIsNone(get_prompt_timeout_seconds())
+
+            with (
+                patch("sys.stdin.isatty", return_value=True),
+                patch.dict("os.environ", {"IN_CLUD": "1"}, clear=True),
+            ):
+                self.assertEqual(get_prompt_timeout_seconds(), 120)
+
+            with (
+                patch("sys.stdin.isatty", return_value=True),
+                patch.dict("os.environ", {"CLAUDE_CODE_SESSION": "1"}, clear=True),
+            ):
+                self.assertEqual(get_prompt_timeout_seconds(), 120)
+
+            with (
+                patch("sys.stdin.isatty", return_value=True),
+                patch.dict("os.environ", {"CODEX_SESSION_ID": "abc"}, clear=True),
+            ):
+                self.assertEqual(get_prompt_timeout_seconds(), 120)
+
+            with (
+                patch("sys.stdin.isatty", return_value=False),
+                patch.dict("os.environ", {}, clear=True),
+            ):
+                self.assertEqual(get_prompt_timeout_seconds(), 15)
 
         except ImportError as e:
             self.skipTest(f"Could not import utility module: {e}")
@@ -241,6 +277,58 @@ class UtilitiesTester(unittest.TestCase):
                 self.assertFalse(main._is_timeout_monitored_phase())
             finally:
                 main._current_command_context = original_context
+
+        except ImportError as e:
+            self.skipTest(f"Could not import main module: {e}")
+        finally:
+            if src_path in sys.path:
+                sys.path.remove(src_path)
+
+    def test_waiting_for_user_input_detects_only_prompt_worker(self):
+        """Test watchdog input detection ignores subprocess stream readers."""
+        src_path = str(Path(self.original_cwd) / "src")
+        sys.path.insert(0, src_path)
+
+        try:
+            from types import SimpleNamespace
+
+            import codeup.main as main
+
+            fake_current = SimpleNamespace(ident=1)
+            fake_prompt_thread = SimpleNamespace(ident=2)
+            fake_reader_thread = SimpleNamespace(ident=3)
+
+            prompt_frame = SimpleNamespace(
+                f_code=SimpleNamespace(co_name="input"),
+                f_back=SimpleNamespace(
+                    f_code=SimpleNamespace(co_name="get_input"),
+                    f_back=None,
+                ),
+            )
+            reader_frame = SimpleNamespace(
+                f_code=SimpleNamespace(co_name="read"),
+                f_back=None,
+            )
+
+            with (
+                patch("threading.current_thread", return_value=fake_current),
+                patch(
+                    "threading.enumerate",
+                    return_value=[fake_current, fake_prompt_thread],
+                ),
+                patch("sys._current_frames", return_value={2: prompt_frame}),
+            ):
+                self.assertTrue(main._is_waiting_for_user_input())
+
+            with (
+                patch("threading.current_thread", return_value=fake_current),
+                patch(
+                    "threading.enumerate",
+                    return_value=[fake_current, fake_reader_thread],
+                ),
+                patch("sys._current_frames", return_value={3: reader_frame}),
+            ):
+                self.assertFalse(main._is_waiting_for_user_input())
 
         except ImportError as e:
             self.skipTest(f"Could not import main module: {e}")

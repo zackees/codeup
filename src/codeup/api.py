@@ -135,7 +135,7 @@ def lint_test(
             error_message=error_message,
         )
 
-    except KeyboardInterrupt:
+    except KeyboardInterrupt:  # noqa
         logger.info("Lint and test interrupted by user")
         interrupt_main()
         return LintTestResult(

@@ -2,7 +2,6 @@
 
 import logging
 import os
-import shlex
 
 from running_process import RunningProcess
 from running_process.output_formatter import NullOutputFormatter
@@ -43,7 +42,22 @@ def run_command_with_callback(
     )
 
     try:
-        for line in rp.line_iter(timeout=600.0):  # 10 minute timeout
+        while True:
+            try:
+                line = rp.get_next_line(timeout=1.0)
+            except TimeoutError as err:
+                from codeup.utils import is_interrupted, process_is_running
+
+                if is_interrupted():
+                    rp.kill()
+                    raise KeyboardInterrupt("Process interrupted") from err
+                if process_is_running(rp):
+                    continue
+                break
+
+            if isinstance(line, rp.end_of_stream_type):
+                break
+
             # Capture the line
             stdout_lines.append(line)
 
@@ -82,9 +96,6 @@ def run_command_with_callback(
         interrupt_main()
         rp.kill()
         raise
-    except TimeoutError as e:
-        logger.error(f"Timeout waiting for process output: {e}")
-        rp.kill()
     except Exception as e:
         logger.warning(f"Exception during line iteration: {e}")
         rp.kill()
@@ -116,15 +127,14 @@ def run_lint(on_line=None) -> LintResult:
             )
 
         # Prepare command
-        from codeup.utils import _to_exec_str
+        from codeup.utils import _to_exec_args
 
-        cmd = _to_exec_str("./lint", bash=True)
-        cmd_parts = shlex.split(cmd)
+        cmd_parts = _to_exec_args("./lint", bash=True)
         logger.debug(f"Running lint with command parts: {cmd_parts}")
 
         # Run with callback support
         exit_code, stdout, stderr, stopped_early = run_command_with_callback(
-            cmd_parts, on_line=on_line, shell=True
+            cmd_parts, on_line=on_line, shell=False
         )
 
         # Determine success
@@ -182,15 +192,14 @@ def run_test(on_line=None) -> TestResult:
             )
 
         # Prepare command
-        from codeup.utils import _to_exec_str
+        from codeup.utils import _to_exec_args
 
-        cmd = _to_exec_str("./test", bash=True)
-        cmd_parts = shlex.split(cmd)
+        cmd_parts = _to_exec_args("./test", bash=True)
         logger.debug(f"Running test with command parts: {cmd_parts}")
 
         # Run with callback support
         exit_code, stdout, stderr, stopped_early = run_command_with_callback(
-            cmd_parts, on_line=on_line, shell=True
+            cmd_parts, on_line=on_line, shell=False
         )
 
         # Determine success

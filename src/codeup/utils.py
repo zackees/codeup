@@ -35,6 +35,27 @@ def is_interrupted() -> bool:
     return _interrupted
 
 
+def process_is_running(process) -> bool:
+    """Return whether a RunningProcess-like object is still active.
+
+    The installed running_process package exposes ``poll()``/``finished`` rather than
+    ``is_running()``. Keep a compatibility fallback for tests or older wrappers.
+    """
+    is_running = getattr(process, "is_running", None)
+    if callable(is_running):
+        return bool(is_running())
+
+    finished = getattr(process, "finished", None)
+    if finished is not None:
+        return not bool(finished)
+
+    poll = getattr(process, "poll", None)
+    if callable(poll):
+        return poll() is None
+
+    return False
+
+
 def is_suspicious_file(filename: str) -> bool:
     """Check if a file has a suspicious extension that typically shouldn't be committed.
 
@@ -104,13 +125,45 @@ class InputTimeoutError(Exception):
     pass
 
 
-def input_with_timeout(prompt: str, timeout_seconds: int = 300) -> str:
+def is_agent_prompt_environment() -> bool:
+    """Return True when codeup is likely running under an AI agent wrapper."""
+    if os.environ.get("IN_CLUD"):
+        return True
+
+    for key, value in os.environ.items():
+        if not value:
+            continue
+        normalized_key = key.upper()
+        if normalized_key.startswith("CLAUDE") or normalized_key.startswith("CODEX"):
+            return True
+
+    return False
+
+
+def get_prompt_timeout_seconds() -> int | None:
+    """Return the timeout policy for interactive prompts."""
+    if not sys.stdin.isatty():
+        return 15
+    if is_agent_prompt_environment():
+        return 120
+    return None
+
+
+def exit_for_missing_user_input() -> None:
+    """Exit with a simple message when no prompt answer is provided in time."""
+    from codeup.console import error
+
+    error("Exiting because the user didn't give an answer.")
+    raise SystemExit(1)
+
+
+def input_with_timeout(prompt: str, timeout_seconds: int | None = None) -> str:
     """
     Get user input with a timeout. Raises InputTimeoutError if timeout is reached.
 
     Args:
         prompt: The prompt to display to the user
-        timeout_seconds: Timeout in seconds (default 5 minutes)
+        timeout_seconds: Timeout in seconds. ``None`` waits indefinitely.
 
     Returns:
         The user's input string
@@ -119,9 +172,8 @@ def input_with_timeout(prompt: str, timeout_seconds: int = 300) -> str:
         InputTimeoutError: If timeout is reached without user input
         EOFError: If input stream is closed
     """
-    # Check if we're in a non-interactive environment first
-    if not sys.stdin.isatty():
-        raise EOFError("No interactive terminal available")
+    if timeout_seconds is None:
+        timeout_seconds = get_prompt_timeout_seconds()
 
     result = []
     exception_holder = []
@@ -136,13 +188,14 @@ def input_with_timeout(prompt: str, timeout_seconds: int = 300) -> str:
             interrupt_main()
             raise
         except EOFError:
-            # EOFError often indicates Ctrl-C on Windows or closed stdin
-            # Treat it as an interrupt
-            from codeup.git_utils import interrupt_main
+            if sys.stdin.isatty():
+                # EOFError often indicates Ctrl-C on Windows in interactive mode.
+                from codeup.git_utils import interrupt_main
 
-            set_interrupted()
-            interrupt_main()
-            raise KeyboardInterrupt("Input interrupted (EOFError)") from None
+                set_interrupted()
+                interrupt_main()
+                raise KeyboardInterrupt("Input interrupted (EOFError)") from None
+            exception_holder.append(EOFError("No input available"))
         except Exception as e:
             exception_holder.append(e)
 
@@ -153,11 +206,13 @@ def input_with_timeout(prompt: str, timeout_seconds: int = 300) -> str:
     # Poll with short joins so we can respond to Ctrl+C quickly
     import time
 
-    deadline = time.time() + timeout_seconds
-    while input_thread.is_alive() and time.time() < deadline:
+    deadline = None if timeout_seconds is None else time.time() + timeout_seconds
+    while input_thread.is_alive():
         input_thread.join(timeout=0.2)
         if is_interrupted():
             raise KeyboardInterrupt("Process interrupted")
+        if deadline is not None and time.time() >= deadline:
+            break
 
     if input_thread.is_alive():
         # Timeout occurred
@@ -291,17 +346,15 @@ def _to_exec_args(cmd: str, bash: bool) -> list[str]:
 def _exec(cmd: str, bash: bool, die=True) -> int:
     print(f"Running: {cmd}")
     original_cmd = cmd
-    cmd = _to_exec_str(cmd, bash)
+    cmd_parts = _to_exec_args(cmd, bash)
+    command_display = _to_exec_str(cmd, bash)
 
     logger.debug(f"Original command: {original_cmd}")
-    logger.debug(f"Transformed command: {cmd}")
+    logger.debug(f"Transformed command: {command_display}")
     logger.debug(f"Bash mode: {bash}")
+    logger.debug(f"Command parts: {cmd_parts}")
 
     try:
-        # Split the command properly for process execution
-        cmd_parts = shlex.split(cmd)
-        logger.debug(f"Command parts: {cmd_parts}")
-
         # Set up environment to force color output
         env = os.environ.copy()
         env["FORCE_COLOR"] = "1"
@@ -310,7 +363,7 @@ def _exec(cmd: str, bash: bool, die=True) -> int:
         # Use RunningProcess directly for better streaming
         rp = RunningProcess(
             command=cmd_parts,
-            shell=bash,
+            shell=False,
             auto_run=True,
             check=False,
             output_formatter=NullOutputFormatter(),
@@ -318,9 +371,20 @@ def _exec(cmd: str, bash: bool, die=True) -> int:
         )
 
         # Stream output in real-time
-        for line in rp.line_iter(
-            timeout=600.0
-        ):  # 10 minute timeout for long operations
+        while True:
+            try:
+                line = rp.get_next_line(timeout=1.0)
+            except TimeoutError:
+                if is_interrupted():
+                    rp.kill()
+                    raise KeyboardInterrupt("Process interrupted") from None
+                if process_is_running(rp):
+                    continue
+                break
+
+            if isinstance(line, rp.end_of_stream_type):
+                break
+
             print(line, flush=True)
 
             # Check if process was interrupted by Ctrl+C
@@ -337,17 +401,6 @@ def _exec(cmd: str, bash: bool, die=True) -> int:
         interrupt_main()
         rp.kill()
         raise
-    except TimeoutError as e:
-        import traceback
-
-        logger.error(f"Timeout waiting for command output: {e}")
-        logger.error(f"Command that timed out: {original_cmd}")
-        logger.error(f"Transformed command: {cmd}")
-        logger.error("Stack trace of timeout location:")
-        logger.error(traceback.format_exc())
-        rp.kill()
-        print(f"Command timed out: {e}", file=sys.stderr)
-        rtn = 1
     except Exception as e:
         logger.error(f"Error in _exec: {e}")
         rp.kill()  # Kill the process on timeout or other exceptions
@@ -379,25 +432,9 @@ def get_answer_yes_or_no(question: str, default: bool | str = "y") -> bool:
         logger.info("get_answer_yes_or_no: process already interrupted, raising")
         raise KeyboardInterrupt("Process interrupted")
 
-    # Check if stdin is available
-    if not sys.stdin.isatty():
-        # No interactive terminal, use default
-        result = (
-            True
-            if (isinstance(default, str) and default.lower() == "y")
-            or (isinstance(default, bool) and default)
-            else False
-        )
-        print(f"{question} [y/n]: {'y' if result else 'n'} (auto-selected, no stdin)")
-        return result
-
     while True:
         try:
-            answer = (
-                input_with_timeout(question + " [y/n]: ", timeout_seconds=300)
-                .lower()
-                .strip()
-            )
+            answer = input_with_timeout(question + " [y/n]: ").lower().strip()
             if "y" in answer:
                 return True
             if "n" in answer:
@@ -423,18 +460,8 @@ def get_answer_yes_or_no(question: str, default: bool | str = "y") -> bool:
                 logger.info("Input failed during shutdown, raising KeyboardInterrupt")
                 raise KeyboardInterrupt("Process interrupted") from e
 
-            # No stdin available or timeout, use default
-            result = (
-                True
-                if (isinstance(default, str) and default.lower() == "y")
-                or (isinstance(default, bool) and default)
-                else False
-            )
             logger.warning(f"Input failed for yes/no question: {e}")
-            print(
-                f"\nInput failed or timed out ({type(e).__name__}), using default: {'y' if result else 'n'}"
-            )
-            return result
+            exit_for_missing_user_input()
 
 
 def get_answer_with_choices(
@@ -468,15 +495,9 @@ def get_answer_with_choices(
 
     prompt = f"{question} [{'/'.join(normalized_choices)}]: "
 
-    if not sys.stdin.isatty():
-        print(
-            f"{question} [{'/'.join(normalized_choices)}]: {normalized_default} (auto-selected, no stdin)"
-        )
-        return normalized_default
-
     while True:
         try:
-            answer = input_with_timeout(prompt, timeout_seconds=300).lower().strip()
+            answer = input_with_timeout(prompt).lower().strip()
             if answer == "":
                 return normalized_default
             if answer in aliases:
@@ -495,10 +516,7 @@ def get_answer_with_choices(
                 raise KeyboardInterrupt("Process interrupted") from e
 
             logger.warning(f"Input failed for choice question: {e}")
-            print(
-                f"\nInput failed or timed out ({type(e).__name__}), using default: {normalized_default}"
-            )
-            return normalized_default
+            exit_for_missing_user_input()
 
 
 def configure_logging(enable_file_logging: bool) -> None:

@@ -199,6 +199,57 @@ class NewApiMethodsTester(unittest.TestCase):
 
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+    def test_interactive_add_untracked_files_batches_staging_after_prompts(self):
+        """Test accepted untracked files are staged once after prompting completes."""
+        from codeup.git_utils import interactive_add_untracked_files
+
+        with (
+            patch(
+                "codeup.git_utils.get_untracked_files",
+                return_value=["alpha.txt", "beta.txt", "gamma.txt"],
+            ),
+            patch(
+                "codeup.utils.get_answer_with_choices",
+                side_effect=["y", "n", "y"],
+            ),
+            patch("codeup.git_utils.git_add_files", return_value=0) as mock_git_add,
+        ):
+            result = interactive_add_untracked_files(
+                is_tty=True,
+                pre_test_mode=False,
+                no_interactive=False,
+            )
+
+        self.assertTrue(result.success, f"Error: {result.error_message}")
+        self.assertEqual(result.files_added, ["alpha.txt", "gamma.txt"])
+        self.assertEqual(result.files_skipped, ["beta.txt"])
+        mock_git_add.assert_called_once_with(["alpha.txt", "gamma.txt"])
+
+    def test_interactive_add_untracked_files_ctrl_c_skips_staging(self):
+        """Test Ctrl-C during prompting does not stage previously accepted files."""
+        from codeup.git_utils import interactive_add_untracked_files
+
+        with (
+            patch(
+                "codeup.git_utils.get_untracked_files",
+                return_value=["alpha.txt", "beta.txt"],
+            ),
+            patch(
+                "codeup.utils.get_answer_with_choices",
+                side_effect=["y", KeyboardInterrupt()],
+            ),
+            patch("codeup.git_utils.git_add_files") as mock_git_add,
+            patch("codeup.git_utils.interrupt_main"),
+        ):
+            with self.assertRaises(KeyboardInterrupt):
+                interactive_add_untracked_files(
+                    is_tty=True,
+                    pre_test_mode=False,
+                    no_interactive=False,
+                )
+
+        mock_git_add.assert_not_called()
+
     def test_remove_untracked_path_refuses_tracked_files(self):
         """Test tracked files are not removed by the untracked-path helper."""
         temp_dir = tempfile.mkdtemp()

@@ -10,6 +10,7 @@ Error Codes:
             handle_keyboard_interrupt(ki) or notify_main_thread() or interrupt_main()
     KBI003: handle_keyboard_interrupt() called outside a KeyboardInterrupt handler
             (e.g. in a try body or a non-KeyboardInterrupt except handler)
+    KBI004: KeyboardInterrupt handler must re-raise unless explicitly suppressed
 """
 
 from __future__ import annotations
@@ -140,6 +141,21 @@ class TryExceptVisitor(ast.NodeVisitor):
                             ),
                         )
                     )
+            if not _handler_re_raises(kbi_handler):
+                if not _is_suppressed(self._source_lines, kbi_handler.lineno, "KBI004"):
+                    self.violations.append(
+                        Violation(
+                            line=kbi_handler.lineno,
+                            col=kbi_handler.col_offset,
+                            code="KBI004",
+                            message=(
+                                "KeyboardInterrupt handler must re-raise to avoid swallowing "
+                                "user interrupts. Add `raise`, or mark the handler with "
+                                "`# noqa: KBI004` if converting the interrupt at a process boundary "
+                                "is intentional."
+                            ),
+                        )
+                    )
 
         # KBI003: handle_keyboard_interrupt() called outside a KeyboardInterrupt handler.
         # Check try body for stray calls.
@@ -228,6 +244,14 @@ def _handler_calls_interrupt_main(handler: ast.ExceptHandler) -> bool:
                     "interrupt_main",
                 ):
                     return True
+    return False
+
+
+def _handler_re_raises(handler: ast.ExceptHandler) -> bool:
+    """Return True when a KeyboardInterrupt handler explicitly re-raises."""
+    for node in ast.walk(handler):
+        if isinstance(node, ast.Raise):
+            return True
     return False
 
 

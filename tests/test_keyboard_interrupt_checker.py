@@ -114,6 +114,44 @@ except KeyboardInterrupt:
         assert "KBI002" in self._codes(code)
 
 
+class TestKBI004(unittest.TestCase):
+    """KBI004: KeyboardInterrupt handler swallows the interrupt."""
+
+    def _violations(self, code: str) -> list[Violation]:
+        return check_file("<test>", code)
+
+    def _codes(self, code: str) -> list[str]:
+        return [v.code for v in self._violations(code)]
+
+    def test_kbi_handler_with_notify_but_no_raise(self) -> None:
+        code = """\
+try:
+    pass
+except KeyboardInterrupt:
+    notify_main_thread()
+"""
+        assert "KBI004" in self._codes(code)
+
+    def test_kbi_handler_with_interrupt_main_wrapper_but_no_raise(self) -> None:
+        code = """\
+try:
+    pass
+except KeyboardInterrupt:
+    interrupt_main()
+"""
+        assert "KBI004" in self._codes(code)
+
+    def test_kbi_handler_noqa_allows_intentional_conversion(self) -> None:
+        code = """\
+try:
+    pass
+except KeyboardInterrupt:  # noqa: KBI004
+    notify_main_thread()
+    return 130
+"""
+        assert "KBI004" not in self._codes(code)
+
+
 class TestGoodCode(unittest.TestCase):
     """These should produce NO violations."""
 
@@ -150,6 +188,7 @@ try:
     pass
 except KeyboardInterrupt as ki:
     handle_keyboard_interrupt(ki)
+    raise
 except Exception:
     pass
 """
@@ -174,6 +213,7 @@ try:
     pass
 except (KeyboardInterrupt, Exception):
     notify_main_thread()
+    raise
 """
         assert self._violations(code) == []
 
@@ -234,6 +274,16 @@ except KeyboardInterrupt:
     print("bye")
 """
         assert "KBI002" in self._codes(code)
+
+    def test_kbi_handler_alone_missing_raise(self) -> None:
+        """KBI handler with signal helper but no raise should trigger KBI004."""
+        code = """\
+try:
+    pass
+except KeyboardInterrupt:
+    notify_main_thread()
+"""
+        assert "KBI004" in self._codes(code)
 
 
 if __name__ == "__main__":

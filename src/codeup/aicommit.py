@@ -3,8 +3,6 @@
 import logging
 import os
 import re
-import sys
-import threading
 
 import openai
 
@@ -13,12 +11,6 @@ from codeup.git_utils import get_git_diff, get_git_diff_cached, safe_git_commit
 logger = logging.getLogger(__name__)
 
 CommitProvider = str | None
-
-
-class InputTimeoutError(Exception):
-    """Raised when input times out."""
-
-    pass
 
 
 class AuthException(Exception):
@@ -412,7 +404,7 @@ Respond with only the commit message, nothing else."""
                     is_auth_error = True
                 elif "Error code:" in error_msg and "message" in error_msg:
                     # Try to extract just the message part from OpenAI error
-                    try:  # noqa: KBI001 - regex parsing, non-blocking
+                    try:  # noqa
                         import re
 
                         match = re.search(r"'message': '([^']*)'", error_msg)
@@ -555,21 +547,6 @@ def _opencommit_or_prompt_for_commit_message(
                 f"Cannot generate commit message: {auth_error.message}. Use: codeup -m 'your commit message'"
             )
 
-        # Check if terminal is a PTY before attempting manual input
-        if not sys.stdin.isatty():
-            logger.error(
-                "AI commit generation failed and terminal is not a PTY - cannot get manual input"
-            )
-            error(f"⚠ {auth_error.message}")
-            error(
-                "⚠ Cannot prompt for manual input (not running in interactive terminal)"
-            )
-            info(auth_error.get_fix_instructions())
-            raise RuntimeError(
-                f"Cannot generate commit message: {auth_error.message}. Use: codeup -m 'your commit message'"
-            )
-
-        # PTY available - warn but allow manual input
         from codeup.console import warning
 
         warning(f"⚠ {auth_error.message}")
@@ -593,20 +570,6 @@ def _opencommit_or_prompt_for_commit_message(
                 f"Cannot generate commit message due to unexpected error: {unexpected_error}. Use: codeup -m 'your commit message'"
             )
 
-        if not sys.stdin.isatty():
-            error(
-                f"⚠ Unexpected error: {type(unexpected_error).__name__}: {unexpected_error}"
-            )
-            error(
-                "⚠ Cannot prompt for manual input (not running in interactive terminal)"
-            )
-            info("Check logs for detailed error information.")
-            info("Provide a commit message manually: codeup -m 'your commit message'")
-            raise RuntimeError(
-                f"Cannot generate commit message due to unexpected error: {unexpected_error}. Use: codeup -m 'your commit message'"
-            )
-
-        # PTY available - warn but allow manual input
         from codeup.console import warning
 
         warning(
@@ -617,71 +580,22 @@ def _opencommit_or_prompt_for_commit_message(
 
     # Fall back to manual commit message (interactive terminal available)
     try:
+        from codeup.utils import input_with_timeout
 
-        def input_with_timeout(prompt: str, timeout_seconds: int = 300) -> str:
-            """
-            Get user input with a timeout. Raises InputTimeoutError if timeout is reached.
-            """
-            # Check if we're in a non-interactive environment first
-            if not sys.stdin.isatty():
-                raise EOFError("No interactive terminal available")
-
-            result = []
-            exception_holder = []
-
-            def get_input():
-                try:
-                    result.append(input(prompt))
-                except KeyboardInterrupt:
-                    from codeup.git_utils import interrupt_main
-
-                    interrupt_main()
-                    raise
-                except Exception as e:
-                    exception_holder.append(e)
-
-            # Start input thread
-            input_thread = threading.Thread(target=get_input, daemon=True)
-            input_thread.start()
-
-            # Poll with short joins so we can respond to Ctrl+C quickly
-            import time
-
-            from codeup.utils import is_interrupted
-
-            deadline = time.time() + timeout_seconds
-            while input_thread.is_alive() and time.time() < deadline:
-                input_thread.join(timeout=0.2)
-                if is_interrupted():
-                    raise KeyboardInterrupt("Process interrupted")
-
-            if input_thread.is_alive():
-                # Timeout occurred
-                logger.warning(f"Input timed out after {timeout_seconds} seconds")
-                raise InputTimeoutError(
-                    f"Input timed out after {timeout_seconds} seconds"
-                )
-
-            # Check if an exception occurred in the input thread
-            if exception_holder:
-                raise exception_holder[0]
-
-            # Return the input if successful
-            if result:
-                return result[0]
-            else:
-                raise InputTimeoutError("No input received")
-
-        msg = input_with_timeout("Commit message: ", timeout_seconds=300)
+        msg = input_with_timeout("Commit message: ")
         safe_git_commit(msg)
-    except (EOFError, InputTimeoutError) as e:
-        from codeup.console import info, warning
+    except KeyboardInterrupt:
+        from codeup.git_utils import interrupt_main
 
-        logger.warning(f"Manual commit message input failed: {e}")
-        warning(f"Commit message input failed or timed out ({type(e).__name__})")
-        info("Using generic commit message as fallback...")
-        safe_git_commit("chore: automated commit (input failed)")
-        return
+        interrupt_main()
+        raise
+    except Exception as e:
+        from codeup.utils import InputTimeoutError, exit_for_missing_user_input
+
+        if isinstance(e, (EOFError, InputTimeoutError)):
+            logger.warning(f"Manual commit message input failed: {e}")
+            exit_for_missing_user_input()
+        raise
 
 
 def ai_commit_or_prompt_for_commit_message(

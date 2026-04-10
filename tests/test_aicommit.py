@@ -19,31 +19,39 @@ class TestAICommitNonPTY(unittest.TestCase):
     """Test AI commit behavior when terminal is not a PTY."""
 
     @patch("codeup.aicommit._generate_ai_commit_message")
-    @patch("sys.stdin.isatty")
-    def test_both_ai_providers_fail_non_pty_raises_error(
-        self, mock_isatty, mock_generate_ai
+    def test_both_ai_providers_fail_non_pty_exits_after_prompt_timeout(
+        self, mock_generate_ai
     ):
         """
         Test that when both AI providers fail AND terminal is not a PTY,
-        the function raises RuntimeError instead of using a fallback message.
+        prompt failure exits instead of creating a synthetic commit.
         """
-        # Mock AI generation to fail with AuthException
         mock_generate_ai.return_value = AuthException(
             "No valid API keys configured", provider=None
         )
 
-        # Mock terminal to not be a PTY
-        mock_isatty.return_value = False
+        from codeup.utils import InputTimeoutError
 
-        # Should raise RuntimeError with appropriate message
-        with self.assertRaises(RuntimeError) as context:
-            _opencommit_or_prompt_for_commit_message(
-                auto_accept=True, no_interactive=False
-            )
+        with (
+            patch("sys.stdin.isatty", return_value=False),
+            patch(
+                "codeup.utils.input_with_timeout",
+                side_effect=InputTimeoutError("Input timed out"),
+            ),
+            patch(
+                "codeup.utils.exit_for_missing_user_input",
+                side_effect=SystemExit(1),
+            ) as mock_exit,
+            patch("codeup.aicommit.safe_git_commit") as mock_commit,
+        ):
+            with self.assertRaises(SystemExit) as context:
+                _opencommit_or_prompt_for_commit_message(
+                    auto_accept=True, no_interactive=False
+                )
 
-        # Verify error message contains expected text
-        error_message = str(context.exception)
-        self.assertIn("codeup -m", error_message.lower())
+        self.assertEqual(context.exception.code, 1)
+        mock_exit.assert_called_once()
+        mock_commit.assert_not_called()
 
     @patch("codeup.aicommit._generate_ai_commit_message")
     @patch("sys.stdin.isatty")
@@ -68,35 +76,28 @@ class TestAICommitNonPTY(unittest.TestCase):
             mock_commit.assert_called_once_with("feat: add new feature")
 
     @patch("codeup.aicommit._generate_ai_commit_message")
-    @patch("sys.stdin.isatty")
-    @patch("builtins.input")
-    def test_ai_fails_pty_allows_manual_input(
-        self, mock_input, mock_isatty, mock_generate_ai
-    ):
+    def test_ai_fails_pty_allows_manual_input(self, mock_generate_ai):
         """
         Test that when AI fails but terminal IS a PTY,
         manual input is requested.
         """
-        # Mock AI generation to fail with AuthException
         mock_generate_ai.return_value = AuthException(
             "No valid API keys configured", provider=None
         )
 
-        # Mock terminal to be a PTY
-        mock_isatty.return_value = True
-
-        # Mock user input
-        mock_input.return_value = "fix: manual commit message"
-
-        # Mock safe_git_commit to avoid actual git operations
-        with patch("codeup.aicommit.safe_git_commit") as mock_commit:
-            # Should not raise an error
+        with (
+            patch("sys.stdin.isatty", return_value=True),
+            patch(
+                "codeup.utils.input_with_timeout",
+                return_value="fix: manual commit message",
+            ),
+            patch("codeup.aicommit.safe_git_commit") as mock_commit,
+        ):
             _opencommit_or_prompt_for_commit_message(
                 auto_accept=True, no_interactive=False
             )
 
-            # Verify commit was called with manual message
-            mock_commit.assert_called_once_with("fix: manual commit message")
+        mock_commit.assert_called_once_with("fix: manual commit message")
 
     @patch("codeup.aicommit._generate_ai_commit_message")
     def test_no_interactive_mode_raises_error(self, mock_generate_ai):
@@ -139,29 +140,36 @@ class TestAICommitNonPTY(unittest.TestCase):
         self.assertIn("unexpected error", error_message.lower())
 
     @patch("codeup.aicommit._generate_ai_commit_message")
-    @patch("sys.stdin.isatty")
-    def test_unexpected_exception_non_pty_raises_error(
-        self, mock_isatty, mock_generate_ai
+    def test_unexpected_exception_non_pty_exits_after_prompt_timeout(
+        self, mock_generate_ai
     ):
         """
-        Test that when an unexpected Exception occurs AND terminal is not a PTY,
-        RuntimeError is raised.
+        Test that unexpected AI errors still follow prompt timeout exit behavior.
         """
-        # Mock AI generation to fail with unexpected Exception
         mock_generate_ai.return_value = ValueError("Unexpected error occurred")
 
-        # Mock terminal to not be a PTY
-        mock_isatty.return_value = False
+        from codeup.utils import InputTimeoutError
 
-        # Should raise RuntimeError with appropriate message
-        with self.assertRaises(RuntimeError) as context:
-            _opencommit_or_prompt_for_commit_message(
-                auto_accept=True, no_interactive=False
-            )
+        with (
+            patch("sys.stdin.isatty", return_value=False),
+            patch(
+                "codeup.utils.input_with_timeout",
+                side_effect=InputTimeoutError("Input timed out"),
+            ),
+            patch(
+                "codeup.utils.exit_for_missing_user_input",
+                side_effect=SystemExit(1),
+            ) as mock_exit,
+            patch("codeup.aicommit.safe_git_commit") as mock_commit,
+        ):
+            with self.assertRaises(SystemExit) as context:
+                _opencommit_or_prompt_for_commit_message(
+                    auto_accept=True, no_interactive=False
+                )
 
-        # Verify error message mentions the unexpected error
-        error_message = str(context.exception)
-        self.assertIn("unexpected error", error_message.lower())
+        self.assertEqual(context.exception.code, 1)
+        mock_exit.assert_called_once()
+        mock_commit.assert_not_called()
 
 
 class TestStripEmojis(unittest.TestCase):

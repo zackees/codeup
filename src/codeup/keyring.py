@@ -35,7 +35,7 @@ class KeyringManager:
             return self._keyring_backend
 
         # Try standard keyring first
-        try:  # noqa: KBI001 - import-time check, non-blocking
+        try:  # noqa
             import keyring
 
             self._keyring_backend = keyring
@@ -68,7 +68,7 @@ class KeyringManager:
                 self.storage = SecretStorage(key, salt, storage_path)
 
             def get_password(self, service: str, username: str) -> str | None:
-                try:  # noqa: KBI001 - simple dict/file lookup
+                try:  # noqa
                     return self.storage.get(f"{service}:{username}")
                 except Exception as e:
                     logger.debug(f"semi_secret get failed: {e}")
@@ -78,7 +78,7 @@ class KeyringManager:
                 self.storage.set(f"{service}:{username}", password)
 
             def delete_password(self, service: str, username: str) -> None:
-                try:  # noqa: KBI001 - simple dict/file operation
+                try:  # noqa
                     self.storage.delete(f"{service}:{username}")
                 except Exception as e:
                     logger.debug(f"semi_secret delete failed: {e}")
@@ -102,7 +102,7 @@ class KeyringManager:
         if backend is None:
             return None
 
-        try:  # noqa: KBI001 - keyring lookup, non-blocking
+        try:  # noqa
             password = backend.get_password(self.service_name, username)
             if password:
                 logger.debug(
@@ -125,7 +125,7 @@ class KeyringManager:
         if backend is None:
             return False
 
-        try:  # noqa: KBI001 - keyring write, non-blocking
+        try:  # noqa
             backend.set_password(self.service_name, username, password)
             logger.debug(
                 f"Successfully stored password in keyring for service '{self.service_name}'"
@@ -143,7 +143,7 @@ class KeyringManager:
         if backend is None:
             return False
 
-        try:  # noqa: KBI001 - keyring delete, non-blocking
+        try:  # noqa
             backend.delete_password(self.service_name, username)
             return True
         except Exception as e:
@@ -171,7 +171,7 @@ class APIKeyManager:
         """
         # 1. Check config file first (if available)
         if self.config_manager:
-            try:  # noqa: KBI001 - config file read, non-blocking
+            try:  # noqa
                 config = self.config_manager.create_or_load_config()
                 if config_key in config and config[config_key]:
                     logger.debug(f"Found {key_name} key in config file")
@@ -207,7 +207,7 @@ class APIKeyManager:
         Returns True if successful.
         """
         if prefer_config and self.config_manager:
-            try:  # noqa: KBI001 - config file write, non-blocking
+            try:  # noqa
                 config = self.config_manager.create_or_load_config()
                 config[config_key] = api_key
                 self.config_manager.save_config(config)
@@ -224,7 +224,7 @@ class APIKeyManager:
 
         # Fallback to config if keyring fails and config manager is available
         if self.config_manager:
-            try:  # noqa: KBI001 - config file write fallback, non-blocking
+            try:  # noqa
                 config = self.config_manager.create_or_load_config()
                 config[config_key] = api_key
                 self.config_manager.save_config(config)
@@ -291,7 +291,7 @@ class APIKeyManager:
 
         # 1. Clear from config file
         if self.config_manager:
-            try:  # noqa: KBI001 - config file write, non-blocking
+            try:  # noqa
                 config = self.config_manager.create_or_load_config()
                 if config_key in config:
                     del config[config_key]

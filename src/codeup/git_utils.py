@@ -800,7 +800,7 @@ def interactive_add_untracked_files(
 
     This function encapsulates the full workflow for handling untracked files:
     - Gets list of untracked files
-    - Checks for incompatible modes (non-TTY, pre-test)
+    - Checks for incompatible modes (pre-test)
     - Either auto-adds all files (non-interactive) or prompts for each file
 
     Args:
@@ -828,19 +828,6 @@ def interactive_add_untracked_files(
                 files_skipped=[],
             )
 
-        # Check for incompatible modes
-        if not is_tty:
-            error_msg = "Untracked files detected when running as subprocess"
-            error(error_msg)
-            error("All files must be staged before running codeup as a subprocess")
-            error("Please stage these files with 'git add' or run codeup interactively")
-            return InteractiveAddResult(
-                success=False,
-                error_message=error_msg,
-                files_added=[],
-                files_skipped=untracked_files,
-            )
-
         if pre_test_mode:
             error_msg = "Untracked files detected in pre-test mode"
             error(error_msg)
@@ -862,10 +849,7 @@ def interactive_add_untracked_files(
             for untracked_file in untracked_files:
                 formatted_name = format_filename_with_warning(untracked_file)
                 info(f"  Adding {formatted_name}")
-                if git_add_file(untracked_file) == 0:
-                    files_added.append(untracked_file)
-                else:
-                    files_skipped.append(untracked_file)
+                files_added.append(untracked_file)
         else:
             # Interactive mode: prompt for each file with explicit actions
             warning("Untracked files found.")
@@ -880,10 +864,7 @@ def interactive_add_untracked_files(
                     "n",
                 )
                 if answer == "y":
-                    if git_add_file(untracked_file) == 0:
-                        files_added.append(untracked_file)
-                    else:
-                        files_skipped.append(untracked_file)
+                    files_added.append(untracked_file)
                 elif answer == "r":
                     if remove_untracked_path(untracked_file):
                         info(f"  Removed {formatted_name}")
@@ -892,6 +873,12 @@ def interactive_add_untracked_files(
                 else:
                     info(f"  Keeping untracked: {formatted_name}")
                     files_skipped.append(untracked_file)
+
+        # Defer staging until all prompt decisions are complete so Ctrl-C leaves the
+        # worktree untouched by git add.
+        if files_added and git_add_files(files_added) != 0:
+            files_skipped.extend(files_added)
+            files_added = []
 
         return InteractiveAddResult(
             success=True,
@@ -1491,7 +1478,7 @@ def enhanced_attempt_rebase(target_branch: str) -> RebaseResult:
         logger.info("enhanced_attempt_rebase interrupted by user")
         interrupt_main()
         # Attempt emergency recovery on interrupt
-        try:  # noqa: KBI001 - emergency cleanup during interrupt, must attempt rollback
+        try:  # noqa
             emergency_rollback(backup_ref)
         except Exception as e:
             logger.warning(f"Emergency rollback failed during interrupt: {e}")

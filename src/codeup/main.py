@@ -56,6 +56,7 @@ from codeup.timestamp_formatter import TimestampOutputFormatter
 from codeup.utils import (
     _exec,
     _publish,
+    _to_exec_args,
     _to_exec_str,
     check_environment,
     configure_logging,
@@ -125,10 +126,22 @@ def _capture_worktree_snapshot() -> WorktreeSnapshot:
     )
 
 
-def _describe_unexpected_worktree_changes(
-    before: WorktreeSnapshot, after: WorktreeSnapshot
+def _describe_new_untracked_files(
+    before: WorktreeSnapshot, after: WorktreeSnapshot, phase: str
 ) -> list[str]:
-    """Return human-readable changes introduced during lint/test validation."""
+    """Return new untracked files introduced by a validation phase."""
+    added_untracked = sorted(set(after.untracked_files) - set(before.untracked_files))
+    if not added_untracked:
+        return []
+    return [
+        f"New untracked files appeared after {phase}: " + ", ".join(added_untracked)
+    ]
+
+
+def _describe_unexpected_worktree_changes(
+    before: WorktreeSnapshot, after: WorktreeSnapshot, phase: str
+) -> list[str]:
+    """Return human-readable changes introduced during a validation phase."""
     details: list[str] = []
 
     before_untracked = set(before.untracked_files)
@@ -145,17 +158,17 @@ def _describe_unexpected_worktree_changes(
     after_staged = set(after.staged_files)
     if added_untracked:
         details.append(
-            "New untracked files appeared during lint/test: "
+            f"New untracked files appeared during {phase}: "
             + ", ".join(added_untracked)
         )
     if removed_untracked:
         details.append(
-            "Previously known untracked files disappeared during lint/test: "
+            f"Previously known untracked files disappeared during {phase}: "
             + ", ".join(removed_untracked)
         )
     if modified_untracked:
         details.append(
-            "Untracked file contents changed during lint/test: "
+            f"Untracked file contents changed during {phase}: "
             + ", ".join(modified_untracked)
         )
 
@@ -163,15 +176,15 @@ def _describe_unexpected_worktree_changes(
     removed_staged = sorted(before_staged - after_staged)
     if added_staged:
         details.append(
-            "New staged files appeared during lint/test: " + ", ".join(added_staged)
+            f"New staged files appeared during {phase}: " + ", ".join(added_staged)
         )
     if removed_staged:
         details.append(
-            "Previously staged files disappeared during lint/test: "
+            f"Previously staged files disappeared during {phase}: "
             + ", ".join(removed_staged)
         )
     if before.staged_diff != after.staged_diff:
-        details.append("The staged diff changed during lint/test.")
+        details.append(f"The staged diff changed during {phase}.")
 
     before_unstaged = set(before.unstaged_files)
     after_unstaged = set(after.unstaged_files)
@@ -179,27 +192,27 @@ def _describe_unexpected_worktree_changes(
     removed_unstaged = sorted(before_unstaged - after_unstaged)
     if added_unstaged:
         details.append(
-            "New modified tracked files appeared during lint/test: "
+            f"New modified tracked files appeared during {phase}: "
             + ", ".join(added_unstaged)
         )
     if removed_unstaged:
         details.append(
-            "Previously modified tracked files disappeared during lint/test: "
+            f"Previously modified tracked files disappeared during {phase}: "
             + ", ".join(removed_unstaged)
         )
     if before.unstaged_diff != after.unstaged_diff:
-        details.append("The unstaged tracked diff changed during lint/test.")
+        details.append(f"The unstaged tracked diff changed during {phase}.")
 
     return details
 
 
-def _report_unexpected_worktree_changes(details: list[str]) -> None:
-    """Report a major red error when lint/test changes the repository unexpectedly."""
+def _report_unexpected_worktree_changes(details: list[str], phase: str) -> None:
+    """Report a major red error when validation changes the repository unexpectedly."""
     error("")
-    error("MAJOR ERROR: Repository files changed during lint/test.")
+    error(f"MAJOR ERROR: Repository files changed during {phase}.")
     error("Codeup determines the commit set before validation runs.")
     error(
-        "Lint/test then changed the worktree unexpectedly, so commit and push were aborted."
+        f"{phase.capitalize()} then changed the worktree unexpectedly, so commit and push were aborted."
     )
     for detail in details:
         error(f"  - {detail}")
@@ -328,9 +341,23 @@ def _run_command_streaming(
     )
 
     try:
-        for line in rp.line_iter(
-            timeout=600.0
-        ):  # 10 minute timeout for long-running builds/tests
+        while True:
+            try:
+                line = rp.get_next_line(timeout=1.0)
+            except TimeoutError:
+                # Quiet commands are normal. Keep polling so Ctrl+C remains responsive.
+                from codeup.utils import is_interrupted, process_is_running
+
+                if is_interrupted():
+                    rp.kill()
+                    raise KeyboardInterrupt("Process interrupted") from None
+                if process_is_running(rp):
+                    continue
+                break
+
+            if isinstance(line, rp.end_of_stream_type):
+                break
+
             if capture_output:
                 stdout_lines.append(line)
             if not quiet:
@@ -352,14 +379,6 @@ def _run_command_streaming(
         interrupt_main()
         rp.kill()
         raise
-    except TimeoutError as e:
-        import traceback
-
-        logger.error(f"Timeout waiting for process output: {e}")
-        logger.error(f"Command that timed out: {cmd}")
-        logger.error("Stack trace of timeout location:")
-        logger.error(traceback.format_exc())
-        rp.kill()
     except Exception as e:
         logger.warning(
             f"Exception during line iteration (streaming may be affected): {e}"
@@ -457,17 +476,16 @@ def _main_worker() -> int:
                 # Use streaming process that captures output AND streams in real-time
                 uv_resolved_dependencies = True
                 try:
-                    import shlex
-
-                    # Split the command properly for subprocess
-                    cmd_parts = shlex.split(cmd)
+                    cmd_parts = _to_exec_args(
+                        "./lint" + (" --verbose" if verbose else ""), bash=True
+                    )
                     logger.debug(f"Running lint with command parts: {cmd_parts}")
 
                     dim(f"Running: {cmd}")
                     # Run with streaming AND capture for dependency detection
                     rtn, stdout, stderr = _run_command_streaming(
                         cmd_parts,
-                        shell=True,
+                        shell=False,
                         quiet=False,  # Stream output in real-time
                         capture_output=True,  # Also capture for dependency checking
                         output_formatter=TimestampOutputFormatter(),
@@ -524,16 +542,15 @@ def _main_worker() -> int:
 
                 dim(f"Running: {test_cmd}")
                 try:
-                    import shlex
-
-                    # Split the command properly for subprocess
-                    test_cmd_parts = shlex.split(test_cmd)
+                    test_cmd_parts = _to_exec_args(
+                        "./test" + (" --verbose" if verbose else ""), bash=True
+                    )
                     logger.debug(f"Running test with command parts: {test_cmd_parts}")
 
                     # Run tests with streaming output (no need to capture for tests)
                     rtn, _, _ = _run_command_streaming(
                         test_cmd_parts,
-                        shell=True,
+                        shell=False,
                         quiet=False,  # Stream output in real-time
                         capture_output=False,  # No need to capture test output
                         output_formatter=TimestampOutputFormatter(),
@@ -682,17 +699,16 @@ def _main_worker() -> int:
             # Use streaming process that captures output AND streams in real-time
             uv_resolved_dependencies = True
             try:
-                import shlex
-
-                # Split the command properly for subprocess
-                cmd_parts = shlex.split(cmd)
+                cmd_parts = _to_exec_args(
+                    "./lint" + (" --verbose" if verbose else ""), bash=True
+                )
                 logger.debug(f"Running lint with command parts: {cmd_parts}")
 
                 dim(f"Running: {cmd}")
                 # Run with streaming AND capture for dependency detection
                 rtn, stdout, stderr = _run_command_streaming(
                     cmd_parts,
-                    shell=True,
+                    shell=False,
                     quiet=False,  # Stream output in real-time
                     capture_output=True,  # Also capture for dependency checking
                     output_formatter=TimestampOutputFormatter(),
@@ -749,6 +765,20 @@ def _main_worker() -> int:
                 logger.error(f"Error during linting: {e}")
                 error(f"Linting error: {e}")
                 sys.exit(1)
+            if validation_snapshot is not None:
+                post_lint_snapshot = _capture_worktree_snapshot()
+                unexpected_untracked_files = _describe_new_untracked_files(
+                    validation_snapshot,
+                    post_lint_snapshot,
+                    "lint",
+                )
+                if unexpected_untracked_files:
+                    _report_unexpected_worktree_changes(
+                        unexpected_untracked_files,
+                        "lint",
+                    )
+                    return 1
+                validation_snapshot = post_lint_snapshot
         if not args.no_test and os.path.exists("./test"):
             print(TESTING_BANNER, end="")
 
@@ -757,16 +787,15 @@ def _main_worker() -> int:
 
             dim(f"Running: {test_cmd}")
             try:
-                import shlex
-
-                # Split the command properly for subprocess
-                test_cmd_parts = shlex.split(test_cmd)
+                test_cmd_parts = _to_exec_args(
+                    "./test" + (" --verbose" if verbose else ""), bash=True
+                )
                 logger.debug(f"Running test with command parts: {test_cmd_parts}")
 
                 # Run tests with streaming output (no need to capture for tests)
                 rtn, _, _ = _run_command_streaming(
                     test_cmd_parts,
-                    shell=True,
+                    shell=False,
                     quiet=False,  # Stream output in real-time
                     capture_output=False,  # No need to capture test output
                     output_formatter=TimestampOutputFormatter(),
@@ -788,14 +817,20 @@ def _main_worker() -> int:
                 error(f"Testing error: {e}")
                 sys.exit(1)
 
-        if ran_validation_commands and validation_snapshot is not None:
+        if (
+            ran_validation_commands
+            and validation_snapshot is not None
+            and not args.no_test
+            and os.path.exists("./test")
+        ):
             current_snapshot = _capture_worktree_snapshot()
             unexpected_changes = _describe_unexpected_worktree_changes(
                 validation_snapshot,
                 current_snapshot,
+                "test",
             )
             if unexpected_changes:
-                _report_unexpected_worktree_changes(unexpected_changes)
+                _report_unexpected_worktree_changes(unexpected_changes, "test")
                 return 1
 
         # Handle git add and commit based on whether we have changes
@@ -989,21 +1024,12 @@ def _is_waiting_for_user_input() -> bool:
         if thread != threading.current_thread() and thread.ident is not None:
             frame = sys._current_frames().get(thread.ident)
             if frame:
-                # Check if thread is blocked on input operations
                 while frame:
-                    # Check for input-related function calls in the stack
-                    if frame.f_code.co_name in (
-                        "input",
-                        "read",
-                        "readline",
-                        "get_input",
-                    ):
-                        # Check if it's in our input_with_timeout function
-                        if (
-                            "input_with_timeout" in frame.f_code.co_filename
-                            or "get_answer_yes_or_no" in frame.f_code.co_filename
-                        ):
-                            return True
+                    # Only treat our dedicated prompt input worker as a user-input wait.
+                    # Subprocess readers also use read()/readline(), which must not suppress
+                    # the lint/test watchdog.
+                    if frame.f_code.co_name == "get_input":
+                        return True
                     frame = frame.f_back
     return False
 
@@ -1067,7 +1093,7 @@ def _dump_all_thread_stacks() -> None:
         print("-" * 40, file=sys.stderr)
 
         # Print the stack trace for this thread
-        try:  # noqa: KBI001 - diagnostic function during timeout, not interactive
+        try:  # noqa
             traceback.print_stack(frame, file=sys.stderr)
         except Exception as e:
             print(f"Error printing stack trace: {e}", file=sys.stderr)
@@ -1097,6 +1123,10 @@ def main() -> int:
                 warned = False
                 continue
 
+            if _is_waiting_for_user_input():
+                warned = False
+                continue
+
             current_time = time.time()
             time_since_last_activity = current_time - last_activity_time[0]
 
@@ -1115,35 +1145,21 @@ def main() -> int:
 
             # If no activity for 5 minutes, trigger thread dump and exit
             if time_since_last_activity >= 300:
-                # Check if we're waiting for user input
-                if _is_waiting_for_user_input():
-                    try:
-                        logger.error(
-                            "Process timed out after 5 minutes while waiting for user input"
-                        )
-                    except (ValueError, OSError):
-                        # Log file may be closed, write directly to stderr
-                        pass
+                try:
+                    logger.error(
+                        "Process timed out after 5 minutes of no test output, dumping stack traces"
+                    )
+                except (ValueError, OSError) as e:
+                    # Log file may be closed, write directly to stderr
                     print(
-                        "ERROR: Process timed out after 5 minutes - died while waiting for user input",
+                        f"Warning: Could not write to log file during timeout: {e}",
                         file=sys.stderr,
                     )
-                else:
-                    try:
-                        logger.error(
-                            "Process timed out after 5 minutes of no test output, dumping stack traces"
-                        )
-                    except (ValueError, OSError) as e:
-                        # Log file may be closed, write directly to stderr
-                        print(
-                            f"Warning: Could not write to log file during timeout: {e}",
-                            file=sys.stderr,
-                        )
-                    print(
-                        "ERROR: Process timed out after 5 minutes of no test output",
-                        file=sys.stderr,
-                    )
-                    _dump_all_thread_stacks()
+                print(
+                    "ERROR: Process timed out after 5 minutes of no test output",
+                    file=sys.stderr,
+                )
+                _dump_all_thread_stacks()
 
                 _thread.interrupt_main()
                 os._exit(1)
@@ -1152,7 +1168,7 @@ def main() -> int:
         """Wrapper for the main worker that stores the result."""
         try:
             result[0] = _main_worker()
-        except KeyboardInterrupt:
+        except KeyboardInterrupt:  # noqa
             logger.info("Worker thread interrupted")
             _thread.interrupt_main()
             set_interrupted()  # Ensure flag is set
@@ -1182,7 +1198,7 @@ def main() -> int:
         while worker_thread.is_alive():
             worker_thread.join(timeout=0.1)  # Poll every 100ms
         return result[0]
-    except KeyboardInterrupt:
+    except KeyboardInterrupt:  # noqa
         logger.info("Main thread interrupted by user")
         _thread.interrupt_main()
         set_interrupted()  # Signal worker thread to stop
@@ -1190,7 +1206,7 @@ def main() -> int:
         # Wait briefly for worker to notice interrupt and exit cleanly
         try:
             worker_thread.join(timeout=1.0)
-        except KeyboardInterrupt:
+        except KeyboardInterrupt:  # noqa
             _thread.interrupt_main()
         # Force exit if worker thread is still alive (daemon thread won't block,
         # but os._exit ensures immediate termination of any lingering subprocesses)
