@@ -11,6 +11,7 @@ from pathlib import Path
 from shutil import which
 
 from running_process import RunningProcess
+from running_process.compat import PIPE
 from running_process.output_formatter import NullOutputFormatter
 
 from codeup.git_utils import find_git_directory
@@ -84,6 +85,51 @@ def is_end_of_stream(process, line) -> bool:
     ):
         return True
     return False
+
+
+def get_process_output_iterator(process, timeout: float | None):
+    """Return an explicit stdout/stderr iterator when supported."""
+    stream_iter = getattr(process, "stream_iter", None)
+    if callable(stream_iter):
+        return stream_iter(timeout=timeout)
+    return None
+
+
+def get_next_process_output(
+    process,
+    output_iterator,
+    timeout: float | None,
+) -> list[tuple[str, str | bytes]] | None:
+    """Read the next available process output batch.
+
+    Returns:
+        ``None`` when the process output is fully drained, otherwise a list of
+        ``(stream_name, line)`` tuples in the order delivered by the dependency.
+    """
+    if output_iterator is not None:
+        event = next(output_iterator)
+        outputs: list[tuple[str, str | bytes]] = []
+
+        stdout_line = getattr(event, "stdout", None)
+        if stdout_line is not None and not is_end_of_stream(process, stdout_line):
+            outputs.append(("stdout", stdout_line))
+
+        stderr_line = getattr(event, "stderr", None)
+        if stderr_line is not None and not is_end_of_stream(process, stderr_line):
+            outputs.append(("stderr", stderr_line))
+
+        if outputs:
+            return outputs
+
+        if is_end_of_stream(process, stdout_line) or is_end_of_stream(
+            process, stderr_line
+        ):
+            return None
+
+    line = process.get_next_line(timeout=timeout)
+    if is_end_of_stream(process, line):
+        return None
+    return [("stdout", line)]
 
 
 def is_suspicious_file(filename: str) -> bool:
@@ -398,12 +444,18 @@ def _exec(cmd: str, bash: bool, die=True) -> int:
             check=False,
             output_formatter=NullOutputFormatter(),
             env=env,
+            stderr=PIPE,
         )
+        output_iterator = get_process_output_iterator(rp, timeout=1.0)
 
         # Stream output in real-time
         while True:
             try:
-                line = rp.get_next_line(timeout=1.0)
+                output_batch = get_next_process_output(
+                    rp,
+                    output_iterator,
+                    timeout=1.0,
+                )
             except TimeoutError:
                 if is_interrupted():
                     rp.kill()
@@ -412,15 +464,17 @@ def _exec(cmd: str, bash: bool, die=True) -> int:
                     continue
                 break
 
-            if is_end_of_stream(rp, line):
+            if output_batch is None:
                 break
 
-            print(line, flush=True)
+            for stream_name, line in output_batch:
+                output_stream = sys.stderr if stream_name == "stderr" else sys.stdout
+                print(line, file=output_stream, flush=True)
 
-            # Check if process was interrupted by Ctrl+C
-            if is_interrupted():
-                rp.kill()
-                raise KeyboardInterrupt("Process interrupted")
+                # Check if process was interrupted by Ctrl+C
+                if is_interrupted():
+                    rp.kill()
+                    raise KeyboardInterrupt("Process interrupted")
 
         rp.wait()
         rtn = rp.returncode or 0

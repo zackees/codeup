@@ -2,8 +2,10 @@
 
 import logging
 import os
+import sys
 
 from running_process import RunningProcess
+from running_process.compat import PIPE
 from running_process.output_formatter import NullOutputFormatter
 
 from codeup.git_utils import LintResult, TestResult, interrupt_main
@@ -31,9 +33,10 @@ def run_command_with_callback(
         Tuple of (exit_code, stdout, stderr, stopped_early)
     """
     stdout_lines = []
+    stderr_lines = []
     stopped_early = False
 
-    from codeup.utils import is_end_of_stream
+    from codeup.utils import get_next_process_output, get_process_output_iterator
 
     rp = RunningProcess(
         command=cmd,
@@ -41,12 +44,18 @@ def run_command_with_callback(
         auto_run=True,
         check=False,
         output_formatter=NullOutputFormatter(),
+        stderr=PIPE,
     )
+    output_iterator = get_process_output_iterator(rp, timeout=1.0)
 
     try:
         while True:
             try:
-                line = rp.get_next_line(timeout=1.0)
+                output_batch = get_next_process_output(
+                    rp,
+                    output_iterator,
+                    timeout=1.0,
+                )
             except TimeoutError as err:
                 from codeup.utils import is_interrupted, process_is_running
 
@@ -57,41 +66,45 @@ def run_command_with_callback(
                     continue
                 break
 
-            if is_end_of_stream(rp, line):
+            if output_batch is None:
                 break
 
-            # Capture the line
-            stdout_lines.append(line)
+            for stream_name, line in output_batch:
+                if stream_name == "stderr":
+                    stderr_lines.append(line)
+                else:
+                    stdout_lines.append(line)
 
-            # Stream to stdout
-            print(line, flush=True)
+                output_stream = sys.stderr if stream_name == "stderr" else sys.stdout
+                print(line, file=output_stream, flush=True)
 
-            # Check if process was interrupted by Ctrl+C
-            from codeup.utils import is_interrupted
+                from codeup.utils import is_interrupted
 
-            if is_interrupted():
-                rp.kill()
-                raise KeyboardInterrupt("Process interrupted")
+                if is_interrupted():
+                    rp.kill()
+                    raise KeyboardInterrupt("Process interrupted")
 
-            # Call callback if provided
-            if on_line is not None:
-                try:
-                    should_continue = on_line(line)
-                    if should_continue is False:
-                        logger.info("Callback requested early stop")
+                if on_line is not None:
+                    try:
+                        should_continue = on_line(line)
+                        if should_continue is False:
+                            logger.info("Callback requested early stop")
+                            stopped_early = True
+                            rp.kill()
+                            break
+                    except KeyboardInterrupt:
+                        logger.info("Callback interrupted by user")
+                        interrupt_main()
+                        rp.kill()
+                        raise
+                    except Exception as e:
+                        logger.error(f"Callback raised exception: {e}")
                         stopped_early = True
                         rp.kill()
                         break
-                except KeyboardInterrupt:
-                    logger.info("Callback interrupted by user")
-                    interrupt_main()
-                    rp.kill()
-                    raise
-                except Exception as e:
-                    logger.error(f"Callback raised exception: {e}")
-                    stopped_early = True
-                    rp.kill()
-                    break
+
+            if stopped_early:
+                break
 
     except KeyboardInterrupt:
         logger.info("Command execution interrupted by user")
@@ -104,7 +117,8 @@ def run_command_with_callback(
 
     rp.wait()
     stdout_text = "\n".join(stdout_lines)
-    return rp.returncode or 0, stdout_text, "", stopped_early
+    stderr_text = "\n".join(stderr_lines)
+    return rp.returncode or 0, stdout_text, stderr_text, stopped_early
 
 
 def run_lint(on_line=None) -> LintResult:

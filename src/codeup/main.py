@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from running_process import RunningProcess
+from running_process.compat import PIPE
 from running_process.output_formatter import NullOutputFormatter
 
 from codeup.aicommit import ai_commit_or_prompt_for_commit_message
@@ -61,7 +62,8 @@ from codeup.utils import (
     check_environment,
     configure_logging,
     get_answer_yes_or_no,
-    is_end_of_stream,
+    get_next_process_output,
+    get_process_output_iterator,
     is_uv_project,
     set_interrupted,
 )
@@ -318,6 +320,7 @@ def _run_command_streaming(
 ) -> tuple[int, str, str]:
     """Run a command with RunningProcess and track activity for timeout."""
     stdout_lines = []
+    stderr_lines = []
 
     if output_formatter is None:
         output_formatter = NullOutputFormatter()
@@ -339,12 +342,18 @@ def _run_command_streaming(
         auto_run=True,
         check=False,
         output_formatter=output_formatter,
+        stderr=PIPE,
     )
+    output_iterator = get_process_output_iterator(rp, timeout=1.0)
 
     try:
         while True:
             try:
-                line = rp.get_next_line(timeout=1.0)
+                output_batch = get_next_process_output(
+                    rp,
+                    output_iterator,
+                    timeout=1.0,
+                )
             except TimeoutError:
                 # Quiet commands are normal. Keep polling so Ctrl+C remains responsive.
                 from codeup.utils import is_interrupted, process_is_running
@@ -356,24 +365,31 @@ def _run_command_streaming(
                     continue
                 break
 
-            if is_end_of_stream(rp, line):
+            if output_batch is None:
                 break
 
-            if capture_output:
-                stdout_lines.append(line)
-            if not quiet:
-                print(line, flush=True)
+            for stream_name, line in output_batch:
+                if capture_output:
+                    if stream_name == "stderr":
+                        stderr_lines.append(line)
+                    else:
+                        stdout_lines.append(line)
+                if not quiet:
+                    output_stream = (
+                        sys.stderr if stream_name == "stderr" else sys.stdout
+                    )
+                    print(line, file=output_stream, flush=True)
 
-            # Update activity tracker when we receive output
-            if _activity_tracker is not None:
-                _activity_tracker[0] = time.time()
+                # Update activity tracker when we receive output
+                if _activity_tracker is not None:
+                    _activity_tracker[0] = time.time()
 
-            # Check if process was interrupted by Ctrl+C
-            from codeup.utils import is_interrupted
+                # Check if process was interrupted by Ctrl+C
+                from codeup.utils import is_interrupted
 
-            if is_interrupted():
-                rp.kill()
-                raise KeyboardInterrupt("Process interrupted")
+                if is_interrupted():
+                    rp.kill()
+                    raise KeyboardInterrupt("Process interrupted")
     except KeyboardInterrupt:
         from codeup.git_utils import interrupt_main
 
@@ -388,11 +404,12 @@ def _run_command_streaming(
 
     rp.wait()
     stdout_text = "\n".join(stdout_lines) if capture_output else ""
+    stderr_text = "\n".join(stderr_lines) if capture_output else ""
 
     # Clear command context after execution
     _clear_current_command_context()
 
-    return rp.returncode or 0, stdout_text, ""
+    return rp.returncode or 0, stdout_text, stderr_text
 
 
 def _main_worker() -> int:

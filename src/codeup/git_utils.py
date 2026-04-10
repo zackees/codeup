@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from running_process import RunningProcess
+from running_process.compat import PIPE
 from running_process.output_formatter import NullOutputFormatter
 
 logger = logging.getLogger(__name__)
@@ -22,6 +23,7 @@ def _run_git_command(
 ) -> tuple[int, str, str]:
     """Run a git command using RunningProcess and return (exit_code, stdout, stderr)."""
     stdout_lines = []
+    stderr_lines = []
 
     rp = RunningProcess(
         command=cmd,
@@ -29,23 +31,41 @@ def _run_git_command(
         auto_run=True,
         check=False,
         output_formatter=NullOutputFormatter(),
+        stderr=PIPE,
     )
 
     try:
-        for line in rp.line_iter(
-            timeout=600.0
-        ):  # 10 minute timeout for long operations
-            if capture_output:
-                stdout_lines.append(line)
-            if not quiet:
-                print(line, flush=True)
+        from codeup.utils import get_next_process_output, get_process_output_iterator
 
-            # Check if process was interrupted by Ctrl+C
-            from codeup.utils import is_interrupted
+        output_iterator = get_process_output_iterator(rp, timeout=600.0)
 
-            if is_interrupted():
-                rp.kill()
-                raise KeyboardInterrupt("Process interrupted")
+        while True:
+            output_batch = get_next_process_output(
+                rp,
+                output_iterator,
+                timeout=600.0,
+            )
+            if output_batch is None:
+                break
+
+            for stream_name, line in output_batch:
+                if capture_output:
+                    if stream_name == "stderr":
+                        stderr_lines.append(line)
+                    else:
+                        stdout_lines.append(line)
+                if not quiet:
+                    output_stream = (
+                        sys.stderr if stream_name == "stderr" else sys.stdout
+                    )
+                    print(line, file=output_stream, flush=True)
+
+                # Check if process was interrupted by Ctrl+C
+                from codeup.utils import is_interrupted
+
+                if is_interrupted():
+                    rp.kill()
+                    raise KeyboardInterrupt("Process interrupted")
     except KeyboardInterrupt:
         interrupt_main()
         rp.kill()
@@ -66,7 +86,8 @@ def _run_git_command(
 
     rp.wait()
     stdout_text = "\n".join(stdout_lines) if capture_output else ""
-    return rp.returncode or 0, stdout_text, ""
+    stderr_text = "\n".join(stderr_lines) if capture_output else ""
+    return rp.returncode or 0, stdout_text, stderr_text
 
 
 def interrupt_main() -> None:

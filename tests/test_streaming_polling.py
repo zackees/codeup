@@ -10,6 +10,13 @@ class _ModuleEndOfStream:
     pass
 
 
+class _ProcessStreamEvent:
+    def __init__(self, stdout=None, stderr=None, exit_code=None):
+        self.stdout = stdout
+        self.stderr = stderr
+        self.exit_code = exit_code
+
+
 class _ScriptedRunningProcess:
     end_of_stream_type = _FakeEndOfStream
     script = []
@@ -40,6 +47,48 @@ class _ScriptedRunningProcess:
 
     def is_running(self):
         return any(not isinstance(item, _FakeEndOfStream) for item in self._script)
+
+    def wait(self):
+        return self.returncode
+
+    def kill(self):
+        self.killed = True
+
+
+class _StreamIterRunningProcess:
+    end_of_stream_type = _FakeEndOfStream
+    script = []
+
+    def __init__(self, *args, **kwargs):
+        self._script = list(type(self).script)
+        self.returncode = 0
+        self.killed = False
+
+    def stream_iter(self, timeout=None):
+        process = self
+
+        class _Iterator:
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                if not process._script:
+                    raise StopIteration
+                item = process._script.pop(0)
+                if isinstance(item, BaseException):
+                    raise item
+                return item
+
+        return _Iterator()
+
+    def poll(self):
+        if self._script:
+            return None
+        return self.returncode
+
+    @property
+    def finished(self):
+        return self.poll() is not None
 
     def wait(self):
         return self.returncode
@@ -205,3 +254,48 @@ class StreamingPollingTests(unittest.TestCase):
             code = utils._exec("echo done", bash=False, die=False)
 
         self.assertEqual(code, 0)
+
+    def test_run_command_streaming_captures_explicit_stdout_and_stderr_streams(self):
+        from codeup import main
+
+        _StreamIterRunningProcess.script = [
+            TimeoutError("No stdout or stderr available before timeout"),
+            _ProcessStreamEvent(stdout="hello"),
+            _ProcessStreamEvent(stderr="problem"),
+            _ProcessStreamEvent(stdout=_FakeEndOfStream(), stderr=_FakeEndOfStream()),
+        ]
+
+        with (
+            patch("codeup.main.RunningProcess", _StreamIterRunningProcess),
+            patch("codeup.utils.is_interrupted", return_value=False),
+        ):
+            code, stdout, stderr = main._run_command_streaming(
+                ["dummy"], quiet=True, capture_output=True
+            )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(stdout, "hello")
+        self.assertEqual(stderr, "problem")
+
+    def test_command_runner_captures_explicit_stdout_and_stderr_streams(self):
+        from codeup import command_runner
+
+        _StreamIterRunningProcess.script = [
+            TimeoutError("No stdout or stderr available before timeout"),
+            _ProcessStreamEvent(stdout="lint ok"),
+            _ProcessStreamEvent(stderr="warning"),
+            _ProcessStreamEvent(stdout=_FakeEndOfStream(), stderr=_FakeEndOfStream()),
+        ]
+
+        with (
+            patch("codeup.command_runner.RunningProcess", _StreamIterRunningProcess),
+            patch("codeup.utils.is_interrupted", return_value=False),
+        ):
+            code, stdout, stderr, stopped_early = (
+                command_runner.run_command_with_callback(["dummy"], on_line=None)
+            )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(stdout, "lint ok")
+        self.assertEqual(stderr, "warning")
+        self.assertFalse(stopped_early)
