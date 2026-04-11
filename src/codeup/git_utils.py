@@ -882,7 +882,7 @@ def interactive_add_untracked_files(
                 answer = get_answer_with_choices(
                     f"  Untracked file: {formatted_name}",
                     ["y", "n", "r"],
-                    "n",
+                    "y",
                 )
                 if answer == "y":
                     files_added.append(untracked_file)
