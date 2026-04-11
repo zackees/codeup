@@ -1218,14 +1218,13 @@ def main() -> int:
         return result[0]
     except KeyboardInterrupt:  # noqa
         logger.info("Main thread interrupted by user")
-        _thread.interrupt_main()
         set_interrupted()  # Signal worker thread to stop
         print("Aborting", file=sys.stderr)
         # Wait briefly for worker to notice interrupt and exit cleanly
         try:
             worker_thread.join(timeout=1.0)
         except KeyboardInterrupt:  # noqa
-            _thread.interrupt_main()
+            pass  # Second Ctrl+C, fall through to force exit
         # Force exit if worker thread is still alive (daemon thread won't block,
         # but os._exit ensures immediate termination of any lingering subprocesses)
         if worker_thread.is_alive():
