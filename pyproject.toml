@@ -34,7 +34,7 @@ dependencies = [
     "keyring>=24.0.0",
     "semi_secret>=1.0.0",
     "colorama>=0.4.6",
-    "running-process>=3.0.8",
+    "running-process>=4.0.0",
 ]
 
 [project.optional-dependencies]
